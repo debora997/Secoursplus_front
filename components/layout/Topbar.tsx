@@ -3,78 +3,77 @@
 import { useEffect, useState } from "react";
 import { ShieldCheck, Clock3 } from "lucide-react";
 
-
 interface TopbarProps {
   title?: string;
-  userName?: string;
-  userRole?: string;
 }
+
+interface UserData {
+  nomComplet: string;
+  telephone: string;
+  caserne: string;
+  role: string;
+}
+
 
 
 export default function Topbar({
   title = "Centre de Commandement",
-  userName = "Cap. Moussa Diarra",
-  userRole = "Chef d'équipe",
+
 }: TopbarProps) {
 
+  const [now, setNow] = useState<Date | null>(null);
 
-const [now,setNow] = useState<Date | null>(null);
-
-
-useEffect(()=>{
-
-setNow(new Date());
-
-const timer = setInterval(()=>{
- setNow(new Date());
-},1000);
+  const [user, setUser] = useState<UserData | null>(null);
 
 
-return ()=>clearInterval(timer);
+  // Récupération de l'utilisateur connecté
+  useEffect(() => {
 
-},[]);
+    const savedUser = localStorage.getItem("user");
 
+    if (savedUser) {
+      setUser(JSON.parse(savedUser));
+    }
 
-
-const initials = userName
-.replace(/^Cap\.\s*/,"")
-.split(" ")
-.map((name)=>name[0])
-.slice(0,2)
-.join("");
+  }, []);
 
 
 
-return (
+  // Horloge
+  useEffect(() => {
+
+    setNow(new Date());
+
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+
+
+    return () => clearInterval(timer);
+
+  }, []);
+
+
+
+  const userName = user?.nomComplet || "Utilisateur";
+
+  const userRole = user?.role || "SECOURISTE";
+
+
+  const initials = userName
+    .replace(/^Cap\.\s*/, "")
+    .split(" ")
+    .map((name) => name[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+
+
+  return (
 
 <header
-className="
-sticky
-top-0
-z-30
-
-flex
-h-[78px]
-
-items-center
-justify-between
-
-border-b
-border-gray-200
-
-bg-white/90
-
-backdrop-blur-md
-
-px-7
-
-shadow-sm
-
-max-[640px]:px-4
-
-"
->
-
+className=" sticky top-0 z-30 flex h-[78px] items-center justify-between border-b border-gray-200 bg-white/90 backdrop-blur-md px-7 shadow-sm max-[640px]:px-4 ">
 
 
 {/* TITRE */}
@@ -88,48 +87,20 @@ gap-2
 ">
 
 <h1
-className="
-text-xl
-font-bold
-tracking-tight
-text-gray-900
-"
->
-
-{title}
-
+className=" text-xl font-bold tracking-tight text-gray-900 ">{title}
 </h1>
 
 
 <span
-className="
-h-2
-w-2
-rounded-full
-bg-red-600
-animate-pulse
-"
-/>
-
-
+className=" h-2 w-2 rounded-full bg-red-600 animate-pulse "/>
 </div>
 
 
 <p
-className="
-mt-1
-text-xs
-text-gray-500
-"
->
-
-Surveillance des interventions en temps réel
-
+className="mt-1 text-xs text-gray-500">Surveillance des interventions en temps réel
 </p>
 
-
 </div>
-
 
 
 
@@ -138,74 +109,16 @@ Surveillance des interventions en temps réel
 {/* SYSTEME */}
 
 <div
-className="
-hidden
-
-md:flex
-
-items-center
-gap-3
-
-rounded-full
-
-border
-border-green-200
-
-bg-green-50
-
-px-4
-py-2
-
-text-xs
-
-font-semibold
-
-text-green-700
-
-"
->
+className="hidden md:flex items-center gap-3 rounded-full border border-green-200 bg-green-50 px-4 py-2 text-xs font-semibold text-green-700">
 
 
-<div
-className="
-relative
-flex
-h-2.5
-w-2.5
-"
->
+<div className="relative flex h-2.5 w-2.5">
 
 <span
-className="
-absolute
-h-full
-w-full
-
-rounded-full
-
-bg-green-500
-
-animate-ping
-
-"
-/>
-
+className="absolute h-full w-full rounded-full bg-green-500 animate-ping"/>
 
 <span
-className="
-relative
-
-h-2.5
-w-2.5
-
-rounded-full
-
-bg-green-500
-
-"
-/>
-
-
+className="relative h-2.5 w-2.5 rounded-full bg-green-500"/>
 </div>
 
 
@@ -213,23 +126,14 @@ bg-green-500
 Système opérationnel
 
 
+
+
 </div>
-
-
-
-
 
 
 {/* DROITE */}
 
-<div
-className="
-flex
-items-center
-gap-4
-"
->
-
+<div className="flex items-center gap-4">
 
 
 {/* HORLOGE */}
@@ -237,22 +141,7 @@ gap-4
 {now && (
 
 <div
-className="
-hidden
-
-lg:flex
-
-items-center
-gap-2
-
-border-r
-border-gray-200
-
-pr-5
-
-"
->
-
+className="hidden lg:flex items-center gap-2 border-r border-gray-200 pr-5">
 
 <Clock3
 className="
@@ -263,34 +152,15 @@ text-red-600
 />
 
 
-<div
-className="
-text-right
-"
->
+<div className="text-right">
 
 <p
-className="
-font-mono
-text-sm
-font-bold
-text-gray-900
-"
->
-
-{now.toLocaleTimeString("fr-FR")}
-
+className="font-mono text-sm font-bold text-gray-900">{now.toLocaleTimeString("fr-FR")}
 </p>
 
 
 <p
-className="
-text-[11px]
-capitalize
-text-gray-500
-"
->
-
+className=" text-[11px] capitalize text-gray-500">
 {now.toLocaleDateString(
 "fr-FR",
 {
@@ -313,63 +183,16 @@ month:"long"
 
 
 
+
 {/* PROFIL */}
 
 
 <div
-className="
-flex
-items-center
-gap-3
-
-rounded-xl
-
-border
-
-border-gray-200
-
-bg-gray-50
-
-px-3
-
-py-2
-
-transition
-
-hover:border-red-200
-
-"
->
+className=" flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 transition hover:border-red-200">
 
 
 <div
-className="
-flex
-
-h-11
-w-11
-
-items-center
-justify-center
-
-rounded-full
-
-bg-gradient-to-br
-
-from-red-600
-
-to-red-700
-
-font-bold
-
-text-white
-
-shadow-md
-
-shadow-red-600/30
-
-"
->
+className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-red-600 to-red-700 font-bold text-white shadow-md shadow-red-600/30">
 
 {initials}
 
@@ -378,78 +201,38 @@ shadow-red-600/30
 
 
 <div
-className="
-hidden
-
-md:block
-
-leading-tight
-
-"
->
+className="hidden md:block leading-tight">
 
 
 <p
-className="
-text-sm
-
-font-bold
-
-text-gray-900
-"
->
-
-{userName}
-
-</p>
-
+className="text-sm font-bold text-gray-900">{userName}</p>
 
 
 <p
-className="
-flex
+className="flex items-center gap-1 text-xs text-gray-500">
 
-items-center
-
-gap-1
-
-text-xs
-
-text-gray-500
-
-"
->
-
-
-<ShieldCheck
-className="
-h-3.5
-w-3.5
-
-text-red-600
-"
-/>
-
+<ShieldCheck className=" h-3.5 w-3.5 text-red-600"/>
 
 {userRole}
 
+</p>
 
+
+<p className="text-[11px] text-gray-400">
+{user?.caserne}
 </p>
 
 
 </div>
 
 
-
 </div>
 
 
 </div>
-
 
 
 </header>
 
-);
-
+  );
 }

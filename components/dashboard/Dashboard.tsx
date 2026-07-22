@@ -8,6 +8,7 @@ import LiveMap from "./LiveMap";
 import AlertDetailDrawer from "./AlertDetailDrawer";
 import { mockAlerts } from "@/data/mockAlerts";
 import { EmergencyAlert } from "@/types/alert";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
 export default function Dashboard() {
   const [alerts, setAlerts] = useState<EmergencyAlert[]>(mockAlerts);
@@ -51,6 +52,7 @@ export default function Dashboard() {
   }
 
   return (
+    <ProtectedRoute>
     <DashboardLayout>
 
       <div className="space-y-7">
@@ -154,5 +156,6 @@ export default function Dashboard() {
       />
 
     </DashboardLayout>
+    </ProtectedRoute>
   );
 }
