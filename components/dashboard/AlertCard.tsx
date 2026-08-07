@@ -1,5 +1,5 @@
 import { forwardRef } from "react";
-import { Calendar, Clock, MapPin, ChevronRight } from "lucide-react";
+import { Calendar, Clock, MapPin, ChevronRight, Car } from "lucide-react";
 import { EmergencyAlert, TYPE_LABEL, STATUS_LABEL, PRIORITY_LABEL } from "@/types/alert";
 import { TYPE_ICON, TYPE_ICON_CLASSES, STATUS_BADGE_CLASSES, PRIORITY_DOT_CLASSES, PRIORITY_TEXT_CLASSES } from "@/lib/alertStyles";
 
@@ -13,7 +13,7 @@ const AlertCard = forwardRef<HTMLDivElement, AlertCardProps>(function AlertCard(
   { alert, onViewDetails, highlighted },
   ref
 ) {
-  const Icon = TYPE_ICON[alert.type];
+  const Icon = TYPE_ICON[alert.type] ?? Car;
 
   return (
     <div

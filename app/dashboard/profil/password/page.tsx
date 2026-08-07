@@ -135,14 +135,15 @@ export default function ChangerMotDePassePage() {
         throw new Error();
       }
 
-      setSuccess("Mot de passe modifié avec succès.");
-
+     setSuccess("Mot de passe modifié avec succès. Veuillez vous reconnecter.");
       setTimeout(() => {
-        router.push("/dashboard");
-      }, 1800);
-    } catch {
-      setError("Ancien mot de passe incorrect.");
-    } finally {
+        localStorage.removeItem("user");
+        router.replace("/login");
+      }, 2000);
+    } catch (error) {
+  setError("Impossible de modifier le mot de passe. Veuillez réessayer.");
+}
+finally {
       setLoading(false);
     }
   }
