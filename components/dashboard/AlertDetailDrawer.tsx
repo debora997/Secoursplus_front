@@ -114,22 +114,55 @@ export default function AlertDetailDrawer({ alert, onClose, onAccept, onTransfer
               </Section>
 
               {/* Photos */}
-              <Section label={`Photos envoyées ${alert.photosCount > 0 ? `(${alert.photosCount})` : "(aucune)"}`}>
-                {alert.photosCount > 0 ? (
-                  <div className="grid grid-cols-3 gap-2">
-                    {Array.from({ length: alert.photosCount }).map((_, i) => (
-                      <div
-                        key={i}
-                        className="flex aspect-square items-center justify-center rounded-sm bg-gradient-to-br from-[#EDEFF3] to-[#DFE2E8] text-brand-muted"
-                      >
-                        <Camera className="h-[22px] w-[22px]" strokeWidth={1.9} />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-[13px] text-brand-muted">Aucune photo n&rsquo;a été jointe à ce signalement.</div>
-                )}
-              </Section>
+<Section
+  label={`Photos envoyées ${
+    alert.photosCount > 0
+      ? `(${alert.photosCount})`
+      : "(aucune)"
+  }`}
+>
+  {alert.photoPaths && alert.photoPaths.length > 0 ? (
+
+    <div className="grid grid-cols-3 gap-2">
+
+      {alert.photoPaths.map((photoPath, i) => {
+
+        const filename =
+          photoPath.split(/[\\/]/).pop();
+
+        const photoUrl =
+          `http://192.168.1.28:8080/api/alerts/photos/${filename}`;
+
+        return (
+          <a
+            key={i}
+            href={photoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block aspect-square overflow-hidden rounded-md border border-brand-line"
+          >
+
+            <img
+              src={photoUrl}
+              alt={`Photo du signalement ${i + 1}`}
+              className="h-full w-full object-cover transition-transform hover:scale-105"
+            />
+
+          </a>
+        );
+
+      })}
+
+    </div>
+
+  ) : (
+
+    <div className="text-[13px] text-brand-muted">
+      Aucune photo n&rsquo;a été jointe à ce signalement.
+    </div>
+
+  )}
+</Section>
             </div>
 
             {/* Actions */}

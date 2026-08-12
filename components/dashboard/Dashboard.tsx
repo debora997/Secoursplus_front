@@ -88,11 +88,10 @@ export default function Dashboard() {
 
 
       reporterName:
-        "Citoyen",
+  alert.citoyenNom ?? "Citoyen",
 
-
-      reporterPhone:
-        "Non disponible",
+reporterPhone:
+  alert.citoyenTelephone ?? "Non disponible",
 
 
       gps:
@@ -101,7 +100,9 @@ export default function Dashboard() {
 
       photosCount:
         alert.photoPaths?.length ?? 0,
-
+        
+      photoPaths:
+  alert.photoPaths ?? [],
 
     };
 

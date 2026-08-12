@@ -30,6 +30,7 @@ export interface EmergencyAlert {
   reporterPhone: string;
   gps: string;
   photosCount: number;
+  photoPaths: string[];
 }
 export const TYPE_LABEL: Record<EmergencyType, string> = {
   accident: "Accident de la route",
