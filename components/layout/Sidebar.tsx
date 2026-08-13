@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import Link from "next/link"; 
+import { usePathname } from "next/navigation"; // Pour détecter la page courante
 import {
   Home,
   Siren,
@@ -11,8 +13,6 @@ import {
   User,
   Settings,
   Menu,
-  Signal,
-  ShieldAlert,
   type LucideIcon,
 } from "lucide-react";
 
@@ -21,6 +21,7 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   badge?: number;
+  href: string; // Rend la route obligatoire
 }
 
 interface SidebarProps {
@@ -32,17 +33,18 @@ interface SidebarProps {
   setCollapsed: Dispatch<SetStateAction<boolean>>;
 }
 
+// 2. AJOUT DES LIENS (href) POUR TOUTES LES PAGES
 const MAIN_ITEMS: NavItem[] = [
-  { key: "accueil", label: "Tableau de bord", icon: Home },
-  { key: "alertes", label: "Alertes urgentes", icon: Siren, badge: 4 },
-  { key: "carte", label: "Carte des interventions", icon: Map },
-  { key: "stats", label: "Statistiques", icon: BarChart3 },
-  { key: "historique", label: "Historique", icon: History },
+  { key: "accueil", label: "Tableau de bord", icon: Home, href: "/dashboard" },
+  { key: "alertes", label: "Alertes urgentes", icon: Siren, badge: 4, href: "/dashboard/alerts" },
+  { key: "carte", label: "Carte des interventions", icon: Map, href: "/dashboard/map" },
+  { key: "stats", label: "Statistiques", icon: BarChart3, href: "/dashboard/statistics" },
+  { key: "historique", label: "Historique", icon: History, href: "/dashboard/history" },
 ];
 
 const ACCOUNT_ITEMS: NavItem[] = [
-  { key: "profil", label: "Profil", icon: User },
-  { key: "parametres", label: "Paramètres", icon: Settings },
+  { key: "profil", label: "Profil", icon: User, href: "/dashboard/profile" },
+  { key: "parametres", label: "Paramètres", icon: Settings, href: "/dashboard/settings" },
 ];
 
 export default function Sidebar({
@@ -52,6 +54,7 @@ export default function Sidebar({
   collapsed,
   setCollapsed,
 }: SidebarProps) {
+  const pathname = usePathname(); // Récupère l'URL actuelle
   const [activeKey, setActiveKey] = useState(active);
 
   useEffect(() => {
@@ -74,13 +77,13 @@ export default function Sidebar({
     >
       {/* HEADER */}
       <div className="flex h-16 items-center justify-between border-b border-white/10 px-3 overflow-visible">
-      <div className={`flex items-center overflow-visible transition-all duration-300 ${collapsed ? "w-10" : "w-32"}`}>
-        <img
-          src="/images/logo.png"
-          alt="Secours+"
-          className="h-28 w-auto max-w-none object-contain"
-        />
-      </div>
+        <div className={`flex items-center overflow-visible transition-all duration-300 ${collapsed ? "w-10" : "w-32"}`}>
+          <img
+            src="/images/logo.png"
+            alt="Secours+"
+            className="h-28 w-auto max-w-none object-contain"
+          />
+        </div>
 
         <button
           onClick={() => setCollapsed(!collapsed)}
@@ -103,7 +106,8 @@ export default function Sidebar({
           <NavRow
             key={item.key}
             item={item}
-            active={activeKey === item.key}
+            // Actif si correspond au state OU si l'URL exacte est visitée
+            active={activeKey === item.key || pathname === item.href}
             collapsed={collapsed}
             onClick={handleClick}
           />
@@ -119,7 +123,7 @@ export default function Sidebar({
           <NavRow
             key={item.key}
             item={item}
-            active={activeKey === item.key}
+            active={activeKey === item.key || pathname === item.href}
             collapsed={collapsed}
             onClick={handleClick}
           />
@@ -128,7 +132,8 @@ export default function Sidebar({
 
       {/* INDICATEUR ALERTE */}
       <div className="flex items-center justify-center border-t border-white/10 p-4">
-        <button
+        <Link
+          href="/dashboard/alerts"
           className={`relative flex h-12 w-12 items-center justify-center rounded-full transition-all duration-300 ${
             hasNewAlert
               ? "bg-red-600 shadow-lg shadow-red-600/50 animate-pulse"
@@ -142,7 +147,7 @@ export default function Sidebar({
           {hasNewAlert && (
             <span className="absolute right-1 top-1 h-3 w-3 animate-ping rounded-full bg-white" />
           )}
-        </button>
+        </Link>
       </div>
 
       <style jsx>{`
@@ -158,6 +163,7 @@ export default function Sidebar({
   );
 }
 
+// 3. NAVROW UTILISE MAINTENANT <Link> ET REDIRIGE PROPREMENT
 function NavRow({
   item,
   active,
@@ -172,7 +178,8 @@ function NavRow({
   const Icon = item.icon;
 
   return (
-    <button
+    <Link
+      href={item.href} // Redirection gérée par Next.js
       onClick={() => onClick(item.key)}
       className={`relative mb-1 flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all duration-300 ${
         collapsed ? "justify-center" : ""
@@ -190,6 +197,6 @@ function NavRow({
           {item.badge}
         </span>
       )}
-    </button>
+    </Link>
   );
 }
