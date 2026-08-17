@@ -9,9 +9,9 @@ export type AlertStatus =
   | "encours"
   | "terminee";
 export type Priority =
+  | "critique"
   | "eleve"
-  | "moyen"
-  | "faible";
+  | "moyen";
 export interface MapPosition {
   x: number;
   y: number;
@@ -45,8 +45,8 @@ export const STATUS_LABEL: Record<AlertStatus, string> = {
   terminee: "Terminée",
 };
 export const PRIORITY_LABEL: Record<Priority, string> = {
+  critique: "Priorité critique",
   eleve: "Priorité élevée",
   moyen: "Priorité moyenne",
-  faible: "Priorité faible",
 };
 export type AlertFilter = "toutes" | AlertStatus;

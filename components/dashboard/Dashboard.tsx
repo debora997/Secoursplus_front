@@ -21,30 +21,123 @@ export default function Dashboard() {
   const [highlightedId, setHighlightedId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Modal uniquement pour les nouvelles alertes entrantes
-  const [incomingAlert, setIncomingAlert] = useState<EmergencyAlert | null>(null);
+  // Alerte entrante affichée dans le modal
+  const [incomingAlert, setIncomingAlert] =
+    useState<EmergencyAlert | null>(null);
 
-  // Ref audio pour stopper la sirène à tout moment
+  // Sirène
   const sirenRef = useRef<HTMLAudioElement | null>(null);
-  const cardRefs = useRef<Record<number, HTMLDivElement | null>>({});
+
+  // Références des cartes d'alertes
+  const cardRefs =
+    useRef<Record<number, HTMLDivElement | null>>({});
 
   // =========================================================
-  // FONCTION UNIFIÉE POUR ARRÊTER LA SIRÈNE
+  // ARRÊTER LA SIRÈNE
   // =========================================================
+
   const stopSiren = useCallback(() => {
     if (sirenRef.current) {
       sirenRef.current.pause();
       sirenRef.current.currentTime = 0;
       sirenRef.current = null;
+
       console.log("🔇 Sirène coupée");
     }
   }, []);
 
   // =========================================================
-  // FORMAT ALERT (Backend Java -> Frontend)
+  // NORMALISER LA GRAVITÉ
   // =========================================================
+  //
+  // Accepte :
+  // "modere"
+  // "modéré"
+  // "MODERE"
+  // "MODÉRÉ"
+  // "grave"
+  // "GRAVE"
+  // "critique"
+  // "CRITIQUE"
+  //
+  // =========================================================
+
+  function normalizeSeverity(severity: any): string {
+    return String(severity ?? "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  }
+
+  // =========================================================
+  // TRANSFORMER LA GRAVITÉ BACKEND EN PRIORITÉ FRONTEND
+  // =========================================================
+  //
+  // modéré / modere -> moyen
+  // grave            -> eleve
+  // critique         -> eleve
+  //
+  // =========================================================
+
+  function mapSeverityToPriority(
+    severity: any
+  ): EmergencyAlert["priority"] {
+    const normalizedSeverity =
+      normalizeSeverity(severity);
+
+    console.log(
+      "🔥 Gravité reçue du backend :",
+      severity
+    );
+
+    console.log(
+      "🔥 Gravité normalisée :",
+      normalizedSeverity
+    );
+
+    switch (normalizedSeverity) {
+      case "modere":
+        return "moyen";
+
+      case "grave":
+        return "eleve";
+
+      case "critique":
+        return "eleve";
+
+      default:
+        console.warn(
+          "⚠️ Gravité inconnue :",
+          severity
+        );
+
+        return "moyen";
+    }
+  }
+
+  // =========================================================
+  // FORMAT ALERT
+  // Backend Java -> Frontend
+  // =========================================================
+
   function formatAlert(alert: any): EmergencyAlert {
-    let mappedStatus: EmergencyAlert["status"] = "nouvelle";
+    console.log(
+      "🚨 ALERTE À FORMATER :",
+      alert
+    );
+
+    console.log(
+      "🔥 GRAVITÉ REÇUE :",
+      alert.severity
+    );
+
+    let mappedStatus: EmergencyAlert["status"] =
+      "nouvelle";
+
+    // -------------------------------------------------------
+    // STATUT
+    // -------------------------------------------------------
 
     if (alert.status === "RECEIVED") {
       mappedStatus = "nouvelle";
@@ -54,245 +147,734 @@ export default function Dashboard() {
       alert.status === "ENGAGED"
     ) {
       mappedStatus = "encours";
-    } else if (alert.status === "TRANSFERRED") {
-      mappedStatus = "transferee";
-    } else if (alert.status === "REJECTED" || alert.status === "REFUSED") {
-      mappedStatus = "refusee";
-    } else if (alert.status === "TERMINATED") {
+    } else if (
+      alert.status === "TERMINATED" ||
+      alert.status === "REJECTED" ||
+      alert.status === "REFUSED"
+    ) {
       mappedStatus = "terminee";
     }
 
+    // -------------------------------------------------------
+    // PRIORITÉ / GRAVITÉ
+    // -------------------------------------------------------
+
+    const priority =
+      mapSeverityToPriority(
+        alert.severity
+      );
+
+    console.log(
+      "🎯 PRIORITÉ FRONTEND :",
+      priority
+    );
+
+    // -------------------------------------------------------
+    // OBJET FINAL
+    // -------------------------------------------------------
+
     return {
       id: alert.id,
-      type: alert.type ? alert.type.toLowerCase() : "urgence",
+
+      type: alert.type
+        ? alert.type.toLowerCase()
+        : "accident",
+
       status: mappedStatus,
-      priority:
-        alert.severity === "HIGH"
-          ? "eleve"
-          : alert.severity === "LOW"
-          ? "faible"
-          : "moyen",
+
+      priority,
+
       date: alert.createdAt
-        ? new Date(alert.createdAt).toLocaleDateString()
+        ? new Date(
+            alert.createdAt
+          ).toLocaleDateString()
         : "",
+
       time: alert.createdAt
-        ? new Date(alert.createdAt).toLocaleTimeString()
+        ? new Date(
+            alert.createdAt
+          ).toLocaleTimeString()
         : "",
+
       location: "Position GPS",
-      position: { x: 50, y: 50 },
-      description: alert.description ?? "",
-      reporterName: alert.citoyenNom ?? "Citoyen",
-      reporterPhone: alert.citoyenTelephone ?? "Non disponible",
+
+      position: {
+        x: 50,
+        y: 50,
+      },
+
+      description:
+        alert.description ?? "",
+
+      reporterName:
+        alert.citoyenNom ??
+        "Citoyen",
+
+      reporterPhone:
+        alert.citoyenTelephone ??
+        "Non disponible",
+
       gps:
-        alert.latitude != null && alert.longitude != null
+        alert.latitude != null &&
+        alert.longitude != null
           ? `${alert.latitude}, ${alert.longitude}`
           : "Position non disponible",
-      photosCount: alert.photoPaths?.length ?? 0,
-      photoPaths: alert.photoPaths ?? [],
+
+      photosCount:
+        alert.photoPaths?.length ?? 0,
+
+      photoPaths:
+        alert.photoPaths ?? [],
     };
   }
 
   // =========================================================
-  // CHARGEMENT INITIAL (Aucun son ne doit jouer ici)
+  // CHARGEMENT INITIAL
   // =========================================================
+
   useEffect(() => {
     fetch(API_URL)
-      .then((res) => {
-        if (!res.ok) throw new Error("Impossible de récupérer les alertes");
-        return res.json();
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(
+            "Impossible de récupérer les alertes"
+          );
+        }
+
+        return response.json();
       })
       .then((data) => {
-        const formatted = data.map(formatAlert);
+        console.log(
+          "📥 Alertes récupérées :",
+          data
+        );
+
+        const formatted =
+          data.map(formatAlert);
+
+        console.log(
+          "📊 Alertes formatées :",
+          formatted
+        );
+
         setAlerts(formatted);
       })
-      .catch((err) => console.error("❌ Erreur chargement alertes :", err));
+      .catch((error) => {
+        console.error(
+          "❌ Erreur chargement alertes :",
+          error
+        );
+      });
   }, []);
 
   // =========================================================
-  // WEBSOCKET (Seul endroit où le son et le modal démarrent)
+  // WEBSOCKET
   // =========================================================
+
   useEffect(() => {
-    const unsubscribe = connectWebSocket((nouvelleAlerte) => {
-      console.log("🚨 ALERTE TEMPS RÉEL REÇUE :", nouvelleAlerte);
-      const alertFormatted = formatAlert(nouvelleAlerte);
+    const unsubscribe =
+      connectWebSocket(
+        (nouvelleAlerte) => {
+          console.log(
+            "🚨 ALERTE TEMPS RÉEL REÇUE :",
+            nouvelleAlerte
+          );
 
-      setAlerts((prev) => {
-        const exists = prev.some((a) => a.id === alertFormatted.id);
-        if (exists) {
-          // Si l'alerte existe déjà, on met à jour la liste SANS relancer la sirène
-          return prev.map((a) => (a.id === alertFormatted.id ? alertFormatted : a));
+          // -----------------------------------------------
+          // FORMATAGE
+          // -----------------------------------------------
+
+          const alertFormatted =
+            formatAlert(
+              nouvelleAlerte
+            );
+
+          console.log(
+            "📊 ALERTE FORMATÉE :",
+            alertFormatted
+          );
+
+          // -----------------------------------------------
+          // AJOUT / MISE À JOUR DANS LA LISTE
+          // -----------------------------------------------
+
+          setAlerts((prev) => {
+            const exists =
+              prev.some(
+                (alert) =>
+                  alert.id ===
+                  alertFormatted.id
+              );
+
+            if (exists) {
+              console.log(
+                "🔄 Alerte déjà présente : mise à jour"
+              );
+
+              return prev.map(
+                (alert) =>
+                  alert.id ===
+                  alertFormatted.id
+                    ? alertFormatted
+                    : alert
+              );
+            }
+
+            console.log(
+              "➕ Nouvelle alerte ajoutée"
+            );
+
+            return [
+              alertFormatted,
+              ...prev,
+            ];
+          });
+
+          // -----------------------------------------------
+          // MODAL + SIRÈNE
+          // -----------------------------------------------
+
+          if (
+            nouvelleAlerte.status ===
+              "RECEIVED" ||
+            alertFormatted.status ===
+              "nouvelle"
+          ) {
+            console.log(
+              "🚨 Nouvelle alerte RECEIVED : démarrage sirène"
+            );
+
+            setIncomingAlert(
+              alertFormatted
+            );
+
+            // Sécurité : arrêter une éventuelle
+            // ancienne sirène
+            stopSiren();
+
+            const audio =
+              new Audio(
+                "/sounds/siren.mp3"
+              );
+
+            audio.loop = true;
+
+            sirenRef.current =
+              audio;
+
+            audio
+              .play()
+              .then(() => {
+                console.log(
+                  "🔊 Sirène démarrée"
+                );
+              })
+              .catch((error) => {
+                console.warn(
+                  "⚠️ Impossible de démarrer la sirène :",
+                  error
+                );
+              });
+          }
         }
-        return [alertFormatted, ...prev];
-      });
+      );
 
-      // Condition : Ne faire sonner et ouvrir le modal QUE SI c'est une alerte reçue
-      if (nouvelleAlerte.status === "RECEIVED" || alertFormatted.status === "nouvelle") {
-        setIncomingAlert(alertFormatted);
-
-        stopSiren();
-        const audio = new Audio("/sounds/siren.mp3");
-        audio.loop = true;
-        sirenRef.current = audio;
-
-        audio.play().catch((err) => {
-          console.warn("⚠️ Lecture automatique bloquée par le navigateur :", err);
-        });
-      }
-    });
+    // -----------------------------------------------
+    // CLEANUP WEBSOCKET
+    // -----------------------------------------------
 
     return () => {
       stopSiren();
-      if (typeof unsubscribe === "function") unsubscribe();
+
+      if (
+        typeof unsubscribe ===
+        "function"
+      ) {
+        unsubscribe();
+      }
     };
   }, [stopSiren]);
 
-  // Nettoyage au démontage
+  // =========================================================
+  // CLEANUP AU DÉMONTAGE
+  // =========================================================
+
   useEffect(() => {
-    return () => stopSiren();
+    return () => {
+      stopSiren();
+    };
   }, [stopSiren]);
 
   // =========================================================
   // MODIFIER LE STATUT
   // =========================================================
+
   async function updateStatus(
     id: number,
-    status: "encours" | "terminee" | "refusee" | "transferee" | "nouvelle"
+    status:
+      | "encours"
+      | "terminee"
+      | "nouvelle"
   ) {
-    // 🛑 COUPE IMMÉDIATEMENT LE SON ET TOUS LES PANNEAUX
+    console.log(
+      `📡 Modification alerte ${id} -> ${status}`
+    );
+
+    // -------------------------------------------------------
+    // COUPER IMMÉDIATEMENT LA SIRÈNE
+    // -------------------------------------------------------
+
     stopSiren();
+
+    // -------------------------------------------------------
+    // FERMER LES PANNEAUX
+    // -------------------------------------------------------
+
     setIncomingAlert(null);
     setSelectedId(null);
 
-    // Mise à jour optimiste immédiate dans le state React
+    // -------------------------------------------------------
+    // MISE À JOUR OPTIMISTE
+    // -------------------------------------------------------
+
     setAlerts((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status } : a))
+      prev.map((alert) =>
+        alert.id === id
+          ? {
+              ...alert,
+              status,
+            }
+          : alert
+      )
     );
 
     try {
-      let backendStatus = "RECEIVED";
-      if (status === "encours") backendStatus = "IN_PROGRESS";
-      else if (status === "transferee") backendStatus = "TRANSFERRED";
-      else if (status === "refusee") backendStatus = "REJECTED";
-      else if (status === "terminee") backendStatus = "TERMINATED";
+      let backendStatus =
+        "RECEIVED";
 
-      const response = await fetch(`${API_URL}/${id}/status?status=${backendStatus}`, {
-        method: "PUT",
-      });
+      if (
+        status === "encours"
+      ) {
+        backendStatus =
+          "IN_PROGRESS";
+      }
 
-      if (!response.ok) throw new Error(await response.text());
+      if (
+        status === "terminee"
+      ) {
+        backendStatus =
+          "TERMINATED";
+      }
+
+      console.log(
+        "📡 Statut envoyé au backend :",
+        backendStatus
+      );
+
+      const response =
+        await fetch(
+          `${API_URL}/${id}/status?status=${backendStatus}`,
+          {
+            method: "PUT",
+          }
+        );
+
+      if (!response.ok) {
+        const errorText =
+          await response.text();
+
+        throw new Error(
+          errorText
+        );
+      }
+
+      console.log(
+        "✅ Statut enregistré"
+      );
     } catch (error) {
-      console.error("❌ Erreur modification statut :", error);
+      console.error(
+        "❌ Erreur modification statut :",
+        error
+      );
     }
   }
 
   // =========================================================
-  // HANDLERS D'ACTIONS
+  // ENGAGER
   // =========================================================
-  function handleAccept(id: number) {
-    updateStatus(id, "encours");
+
+  function handleAccept(
+    id: number
+  ) {
+    console.log(
+      "🚒 Intervention engagée :",
+      id
+    );
+
+    updateStatus(
+      id,
+      "encours"
+    );
   }
 
-  function handleReject(id: number) {
-    updateStatus(id, "refusee");
+  // =========================================================
+  // REFUSER
+  // =========================================================
+
+  function handleReject(
+    id: number
+  ) {
+    console.log(
+      "❌ Intervention refusée :",
+      id
+    );
+
+    updateStatus(
+      id,
+      "terminee"
+    );
   }
 
-  function handleTransfer(id: number) {
-    updateStatus(id, "transferee");
-  }
+  // =========================================================
+  // TRANSFÉRER
+  // =========================================================
 
-  // 🟢 NOUVELLE FONCTION POUR TERMINER UNE INTERVENTION
-  function handleTerminate(id: number) {
-    updateStatus(id, "terminee");
-  }
+  function handleTransfer(
+    id: number
+  ) {
+    console.log(
+      "🔄 Intervention transférée :",
+      id
+    );
 
-  function handleDetails(id: number) {
+    // Pour le moment on ferme
+    // et coupe la sirène.
     stopSiren();
+
     setIncomingAlert(null);
+    setSelectedId(null);
+
+    // Tu pourras ensuite connecter
+    // ici ton endpoint de transfert.
+  }
+
+  // =========================================================
+  // TERMINER
+  // =========================================================
+
+  function handleTerminate(
+    id: number
+  ) {
+    console.log(
+      "🏁 Intervention terminée :",
+      id
+    );
+
+    updateStatus(
+      id,
+      "terminee"
+    );
+  }
+
+  // =========================================================
+  // VOIR LES DÉTAILS
+  // =========================================================
+
+  function handleDetails(
+    id: number
+  ) {
+    console.log(
+      "👁️ Affichage détails :",
+      id
+    );
+
+    stopSiren();
+
+    setIncomingAlert(null);
+
     setSelectedId(id);
   }
 
+  // =========================================================
+  // RÉDUIRE LE MODAL
+  // =========================================================
+
   function handleMinimize() {
+    console.log(
+      "🔽 Modal réduit"
+    );
+
     stopSiren();
+
     setIncomingAlert(null);
   }
 
-  function focusAlertFromMap(id: number) {
-    const el = cardRefs.current[id];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
+  // =========================================================
+  // FOCUS DEPUIS LA CARTE
+  // =========================================================
+
+  function focusAlertFromMap(
+    id: number
+  ) {
+    const element =
+      cardRefs.current[id];
+
+    if (element) {
+      element.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+
       setHighlightedId(id);
-      setTimeout(() => setHighlightedId(null), 1100);
+
+      setTimeout(() => {
+        setHighlightedId(null);
+      }, 1100);
     }
   }
 
-  const selectedAlert = alerts.find((a) => a.id === selectedId) ?? null;
+  // =========================================================
+  // ALERTE SÉLECTIONNÉE
+  // =========================================================
+
+  const selectedAlert =
+    alerts.find(
+      (alert) =>
+        alert.id === selectedId
+    ) ?? null;
+
+  // =========================================================
+  // RENDER
+  // =========================================================
 
   return (
     <ProtectedRoute>
       <DashboardLayout>
+
         <div className="space-y-7">
+
+          {/* =================================================
+              STATISTIQUES
+          ================================================= */}
+
           <StatGrid
             alerts={alerts}
             availableFirefighters={8}
             totalFirefighters={14}
           />
 
-          <div className="grid grid-cols-[1fr_410px] gap-6 max-[1180px]:grid-cols-1">
-            <section className="rounded-2xl border border-gray-200 bg-white shadow">
-              <div className="flex justify-between border-b px-6 py-5">
+          {/* =================================================
+              ALERTES + CARTE
+          ================================================= */}
+
+          <div
+            className="
+              grid
+              grid-cols-[1fr_410px]
+              gap-6
+              max-[1180px]:grid-cols-1
+            "
+          >
+
+            {/* =================================================
+                LISTE ALERTES
+            ================================================= */}
+
+            <section
+              className="
+                rounded-2xl
+                border
+                border-gray-200
+                bg-white
+                shadow
+              "
+            >
+
+              <div
+                className="
+                  flex
+                  justify-between
+                  border-b
+                  px-6
+                  py-5
+                "
+              >
+
                 <div>
-                  <h2 className="text-lg font-semibold">Alertes & Interventions</h2>
-                  <p className="text-sm text-gray-500">Alertes reçues en temps réel</p>
+
+                  <h2 className="text-lg font-semibold">
+                    Alertes & Interventions
+                  </h2>
+
+                  <p className="text-sm text-gray-500">
+                    Alertes reçues en temps réel
+                  </p>
+
                 </div>
-                <span className="rounded-full bg-red-50 px-3 py-1 text-xs text-red-600">
-                  {alerts.filter((a) => a.status !== "terminee").length} actives
+
+                <span
+                  className="
+                    rounded-full
+                    bg-red-50
+                    px-3
+                    py-1
+                    text-xs
+                    text-red-600
+                  "
+                >
+                  {
+                    alerts.filter(
+                      (alert) =>
+                        alert.status !==
+                        "terminee"
+                    ).length
+                  }{" "}
+                  actives
                 </span>
+
               </div>
+
               <div className="p-6">
+
                 <AlertList
                   alerts={alerts}
-                  searchQuery={searchQuery}
-                  onViewDetails={(id) => {
+                  searchQuery={
+                    searchQuery
+                  }
+
+                  onViewDetails={(
+                    id
+                  ) => {
                     stopSiren();
-                    setSelectedId(id);
+
+                    setIncomingAlert(
+                      null
+                    );
+
+                    setSelectedId(
+                      id
+                    );
                   }}
-                  onTerminate={handleTerminate} // 👈 TRANSMIS À ALERTLIST
-                  highlightedId={highlightedId}
-                  cardRefs={cardRefs}
+
+                  onTerminate={
+                    handleTerminate
+                  }
+
+                  highlightedId={
+                    highlightedId
+                  }
+
+                  cardRefs={
+                    cardRefs
+                  }
                 />
+
               </div>
+
             </section>
 
-            <section className="rounded-2xl border border-gray-200 bg-white shadow">
-              <div className="border-b px-6 py-5">
-                <h2 className="text-lg font-semibold">Carte des interventions</h2>
+            {/* =================================================
+                CARTE
+            ================================================= */}
+
+            <section
+              className="
+                rounded-2xl
+                border
+                border-gray-200
+                bg-white
+                shadow
+              "
+            >
+
+              <div
+                className="
+                  border-b
+                  px-6
+                  py-5
+                "
+              >
+
+                <h2 className="text-lg font-semibold">
+                  Carte des interventions
+                </h2>
+
               </div>
+
               <div className="p-5">
-                <LiveMap alerts={alerts} onSelectAlert={focusAlertFromMap} />
+
+                <LiveMap
+                  alerts={alerts}
+                  onSelectAlert={
+                    focusAlertFromMap
+                  }
+                />
+
               </div>
+
             </section>
+
           </div>
+
         </div>
 
-        {/* MODAL NOUVELLE ALERTE ENTRANTE */}
+        {/* =====================================================
+            MODAL NOUVELLE ALERTE
+        ===================================================== */}
+
         <NewAlertModal
           alert={incomingAlert}
-          onAccept={handleAccept}
-          onReject={handleReject}
-          onTransfer={handleTransfer}
-          onDetails={handleDetails}
-          onMinimize={handleMinimize}
+
+          onAccept={
+            handleAccept
+          }
+
+          onReject={
+            handleReject
+          }
+
+          onTransfer={
+            handleTransfer
+          }
+
+          onDetails={
+            handleDetails
+          }
+
+          onMinimize={
+            handleMinimize
+          }
         />
 
-        {/* DRAWER DÉTAILS */}
+        {/* =====================================================
+            DRAWER DÉTAILS
+        ===================================================== */}
+
         <AlertDetailDrawer
           alert={selectedAlert}
-          onClose={() => setSelectedId(null)}
-          onAccept={handleAccept}
-          onRefuse={handleReject}
-          onTransfer={handleTransfer}
-          onTerminate={handleTerminate} // 👈 OPTIONNEL : SI TU VEUX AUSSI LE BOUTON DANS LE DRAWER
+
+          onClose={() => {
+            stopSiren();
+            setSelectedId(null);
+          }}
+
+          onAccept={
+            handleAccept
+          }
+
+          onRefuse={
+            handleReject
+          }
+
+          onTransfer={
+            handleTransfer
+          }
+
+          onTerminate={
+            handleTerminate
+          }
         />
+
       </DashboardLayout>
     </ProtectedRoute>
   );
