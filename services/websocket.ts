@@ -22,7 +22,7 @@ export const connectWebSocket = (onAlertReceived: (alert: any) => void) => {
         try {
           stompClient.subscribe("/topic/alertes", (message) => {
             const alert = JSON.parse(message.body);
-            console.log("Nouvelle alerte :", alert);
+            console.log("Nouvelle alerte reçue via WebSocket :", alert);
             onAlertReceived(alert);
           });
         } catch (error) {

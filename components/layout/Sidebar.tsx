@@ -2,17 +2,17 @@
 
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import Link from "next/link"; 
-import { usePathname } from "next/navigation"; // Pour détecter la page courante
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   Home,
-  Siren,
   Map,
   BarChart3,
   History,
   User,
   Settings,
   Menu,
+  Siren,
   type LucideIcon,
 } from "lucide-react";
 
@@ -21,7 +21,7 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   badge?: number;
-  href: string; // Rend la route obligatoire
+  href: string;
 }
 
 interface SidebarProps {
@@ -33,10 +33,9 @@ interface SidebarProps {
   setCollapsed: Dispatch<SetStateAction<boolean>>;
 }
 
-// 2. AJOUT DES LIENS (href) POUR TOUTES LES PAGES
+// 1. SUPPRESSION DE "ALERTES URGENTES"
 const MAIN_ITEMS: NavItem[] = [
   { key: "accueil", label: "Tableau de bord", icon: Home, href: "/dashboard" },
-  { key: "alertes", label: "Alertes urgentes", icon: Siren, badge: 4, href: "/dashboard/alerts" },
   { key: "carte", label: "Carte des interventions", icon: Map, href: "/dashboard/map" },
   { key: "stats", label: "Statistiques", icon: BarChart3, href: "/dashboard/statistics" },
   { key: "historique", label: "Historique", icon: History, href: "/dashboard/history" },
@@ -54,8 +53,17 @@ export default function Sidebar({
   collapsed,
   setCollapsed,
 }: SidebarProps) {
-  const pathname = usePathname(); // Récupère l'URL actuelle
+  const pathname = usePathname();
   const [activeKey, setActiveKey] = useState(active);
+
+  // Synchronise la sélection de la sidebar directement avec l'URL
+  useEffect(() => {
+    const allItems = [...MAIN_ITEMS, ...ACCOUNT_ITEMS];
+    const matchedItem = allItems.find((item) => item.href === pathname);
+    if (matchedItem) {
+      setActiveKey(matchedItem.key);
+    }
+  }, [pathname]);
 
   useEffect(() => {
     if (hasNewAlert) {
@@ -106,8 +114,7 @@ export default function Sidebar({
           <NavRow
             key={item.key}
             item={item}
-            // Actif si correspond au state OU si l'URL exacte est visitée
-            active={activeKey === item.key || pathname === item.href}
+            active={activeKey === item.key}
             collapsed={collapsed}
             onClick={handleClick}
           />
@@ -123,7 +130,7 @@ export default function Sidebar({
           <NavRow
             key={item.key}
             item={item}
-            active={activeKey === item.key || pathname === item.href}
+            active={activeKey === item.key}
             collapsed={collapsed}
             onClick={handleClick}
           />
@@ -133,7 +140,7 @@ export default function Sidebar({
       {/* INDICATEUR ALERTE */}
       <div className="flex items-center justify-center border-t border-white/10 p-4">
         <Link
-          href="/dashboard/alerts"
+          href="/dashboard/history"
           className={`relative flex h-12 w-12 items-center justify-center rounded-full transition-all duration-300 ${
             hasNewAlert
               ? "bg-red-600 shadow-lg shadow-red-600/50 animate-pulse"
@@ -163,7 +170,6 @@ export default function Sidebar({
   );
 }
 
-// 3. NAVROW UTILISE MAINTENANT <Link> ET REDIRIGE PROPREMENT
 function NavRow({
   item,
   active,
@@ -179,7 +185,7 @@ function NavRow({
 
   return (
     <Link
-      href={item.href} // Redirection gérée par Next.js
+      href={item.href}
       onClick={() => onClick(item.key)}
       className={`relative mb-1 flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all duration-300 ${
         collapsed ? "justify-center" : ""

@@ -58,41 +58,47 @@ export default function Login() {
     setErrors({});
     setIsSubmitting(true);
 
-        try {
-    const response = await fetch("http://localhost:8080/api/auth/login", {
+try {
+      const response = await fetch("http://localhost:8080/api/auth/login", {
         method: "POST",
         headers: {
-        "Content-Type": "application/json",
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
-        nomComplet: formData.fullName,
-        motDePasse: formData.password,
+          nomComplet: formData.fullName,
+          motDePasse: formData.password,
         }),
-    });
+      });
 
-    if (!response.ok) {
-    throw new Error("Identifiants incorrects");
-}
+      if (!response.ok) {
+        throw new Error("Identifiants incorrects");
+      }
 
-const user = await response.json();
+      const user = await response.json();
 
-localStorage.setItem("user", JSON.stringify(user));
+      // 1. Stockage des informations utilisateur
+      localStorage.setItem("user", JSON.stringify(user));
 
-setSuccessMessage(
-    "Connexion réussie ! Redirection vers le tableau de bord..."
-);
+      setSuccessMessage(
+        "Connexion réussie ! Redirection en cours..."
+      );
 
-setTimeout(() => {
-    router.push("/dashboard");
-}, 2000);
+      // 2. Redirection conditionnelle selon le rôle renvoyé par le backend
+      setTimeout(() => {
+        if (user.role === "SUPER_ADMIN") {
+          router.push("/super-admin/dashboard");
+        } else {
+          router.push("/dashboard");
+        }
+      }, 1500);
 
     } catch {
-    setSubmitError(
-     "Identifiants incorrects. Vérifiez votre nom et votre mot de passe."
-    );
+      setSubmitError(
+        "Identifiants incorrects. Vérifiez votre nom et votre mot de passe."
+      );
     } finally {
-    setIsSubmitting(false);
-    }
+      setIsSubmitting(false);
+    } 
   }
 
   return (
