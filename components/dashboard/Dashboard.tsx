@@ -13,7 +13,7 @@ import NewAlertPopup from "./NewAlertPopup";
 import { EmergencyAlert } from "@/types/alert";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
-const API_URL = "http://localhost:8080/api/alerts";
+const API_URL = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/alerts`;
 
 // =========================================================
 // UTILITAIRE : VÉRIFIER SI LA DATE CORRESPOND À AUJOURD'HUI
@@ -146,9 +146,9 @@ export default function Dashboard() {
   }
 
   // =========================================================
-  // CHARGEMENT INITIAL (FILTRAGE STRICT DU JOUR)
+  // CHARGEMENT INITIAL & RECHARGEMENT (FILTRAGE STRICT DU JOUR)
   // =========================================================
-  useEffect(() => {
+  const fetchAlerts = useCallback(() => {
     fetch(API_URL)
       .then((response) => {
         if (!response.ok) {
@@ -169,14 +169,18 @@ export default function Dashboard() {
       });
   }, []);
 
+  useEffect(() => {
+    fetchAlerts();
+  }, [fetchAlerts]);
+
   // =========================================================
-  // DETECTEUR DU BASCULEMENT DE MINUIT
+  // DÉTECTEUR DU BASCULEMENT DE MINUIT
   // =========================================================
   useEffect(() => {
     const interval = setInterval(() => {
       const currentDateStr = new Date().toDateString();
       if (currentDateStr !== lastCheckedDateRef.current) {
-        console.log("🌙 Changement de jour détecté ! Réinitialisation du Dashboard pour le nouveau jour.");
+        console.log("🌙 Changement de jour détecté ! Réinitialisation du Dashboard.");
         lastCheckedDateRef.current = currentDateStr;
 
         // Purge automatique des alertes qui ne datent plus d'aujourd'hui
@@ -190,20 +194,20 @@ export default function Dashboard() {
   }, []);
 
   // =========================================================
-  // WEBSOCKET (RECEPTION ET VERIFICATION DU JOUR)
+  // WEBSOCKET (RÉCEPTION ET VERIFICATION DU JOUR)
   // =========================================================
   useEffect(() => {
     const unsubscribe: (() => void) | void = connectWebSocket((nouvelleAlerte) => {
       // 1. Vérification : l'alerte provient-elle d'aujourd'hui ?
       if (!isToday(nouvelleAlerte.createdAt)) {
-        console.log("ℹ️ Alerte ignorée par le Dashboard car elle ne date pas d'aujourd'hui :", nouvelleAlerte.id);
+        console.log("ℹ️ Alerte ignorée car elle ne date pas d'aujourd'hui :", nouvelleAlerte.id);
         return;
       }
 
       // 2. Formater l'alerte du jour
       const alertFormatted = formatAlert(nouvelleAlerte);
 
-      // 3. Mettre à jour la liste des alertes
+      // 3. Mettre à jour la liste des alertes (Création ou Mise à jour d'état)
       setAlerts((prev) => {
         const exists = prev.some((alert) => alert.id === alertFormatted.id);
         if (exists) {
@@ -212,8 +216,8 @@ export default function Dashboard() {
         return [alertFormatted, ...prev];
       });
 
-      // 4. Déclencher Popup et Sirène uniquement pour les nouvelles alertes
-      if (nouvelleAlerte.status === "RECEIVED" || alertFormatted.status === "nouvelle") {
+      // 4. Déclencher Popup et Sirène uniquement pour les nouvelles alertes non traitées
+      if (nouvelleAlerte.status === "RECEIVED") {
         setIncomingAlert(alertFormatted);
         stopSiren();
 
@@ -223,7 +227,7 @@ export default function Dashboard() {
 
         audio.play()
           .then(() => console.log("🔊 Sirène démarrée"))
-          .catch((error) => console.warn("⚠️ Impossible de démarrer la sirène :", error));
+          .catch((error) => console.warn("⚠️ Sirène bloquée par le navigateur :", error));
       }
     });
 
@@ -245,30 +249,51 @@ export default function Dashboard() {
   }, [stopSiren]);
 
   // =========================================================
-  // MODIFIER LE STATUT
+  // MODIFIER LE STATUT AVEC GESTION DES CONFLITS (CONCURRENCE)
   // =========================================================
   async function updateStatus(id: number, status: "encours" | "terminee" | "nouvelle") {
     stopSiren();
     setIncomingAlert(null);
     setSelectedId(null);
 
-    setAlerts((prev) =>
-      prev.map((alert) => (alert.id === id ? { ...alert, status } : alert))
-    );
+    // Récupération des informations de la caserne / utilisateur connecté
+    const userString = localStorage.getItem("user");
+    const user = userString ? JSON.parse(userString) : null;
+    const caserneNom = user?.caserne || user?.caserneName || "";
+    const role = user?.role || "CHEF_CASERNE";
+
+    let backendStatus = "RECEIVED";
+    if (status === "encours") backendStatus = "IN_PROGRESS";
+    if (status === "terminee") backendStatus = "TERMINATED";
 
     try {
-      let backendStatus = "RECEIVED";
-      if (status === "encours") backendStatus = "IN_PROGRESS";
-      if (status === "terminee") backendStatus = "TERMINATED";
+      const url = `${API_URL}/${id}/status?status=${backendStatus}&caserne=${encodeURIComponent(caserneNom)}`;
 
-      const response = await fetch(`${API_URL}/${id}/status?status=${backendStatus}`, {
+      const response = await fetch(url, {
         method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Admin-Role": role,
+        },
       });
+
+      // CAS CONCURRENCE (HTTP 409) : Une autre caserne a déjà validé
+      if (response.status === 409) {
+        const errorText = await response.text();
+        alert(`⚠️ Intervention déjà prise en charge : ${errorText}`);
+        fetchAlerts(); // Recharger les données pour synchroniser l'affichage
+        return;
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(errorText);
       }
+
+      // Mise à jour optimiste du state local
+      setAlerts((prev) =>
+        prev.map((alert) => (alert.id === id ? { ...alert, status } : alert))
+      );
     } catch (error) {
       console.error("❌ Erreur modification statut :", error);
     }
@@ -289,6 +314,7 @@ export default function Dashboard() {
     stopSiren();
     setIncomingAlert(null);
     setSelectedId(null);
+    fetchAlerts();
   }
 
   function handleTerminate(id: number) {
