@@ -9,9 +9,11 @@ export interface Citoyen {
   dateCreation?: string;
 }
 
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  "http://localhost:8080/api/super-admin";
+// 🟢 1. On récupère la base "/api" (ex: http://192.168.1.17:8080/api)
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+
+// 🟢 2. On définit l'URL exacte de l'endpoint des citoyens
+const CITOYENS_API_URL = `${BASE_URL}/super-admin/citoyens`;
 
 const SUPER_ADMIN_HEADERS = {
   "Content-Type": "application/json",
@@ -20,7 +22,8 @@ const SUPER_ADMIN_HEADERS = {
 
 export const citoyenService = {
   async getAll(): Promise<Citoyen[]> {
-    const response = await fetch(`${API_URL}/citoyens`, {
+    // 🟢 Appelle : http://192.168.1.17:8080/api/super-admin/citoyens
+    const response = await fetch(CITOYENS_API_URL, {
       method: "GET",
       headers: SUPER_ADMIN_HEADERS,
     });
@@ -33,13 +36,11 @@ export const citoyenService = {
   },
 
   async toggleStatus(id: number): Promise<Citoyen> {
-    const response = await fetch(
-      `${API_URL}/citoyens/${id}/toggle-status`,
-      {
-        method: "PATCH",
-        headers: SUPER_ADMIN_HEADERS,
-      }
-    );
+    // 🟢 Appelle : http://192.168.1.17:8080/api/super-admin/citoyens/{id}/toggle-status
+    const response = await fetch(`${CITOYENS_API_URL}/${id}/toggle-status`, {
+      method: "PATCH",
+      headers: SUPER_ADMIN_HEADERS,
+    });
 
     if (!response.ok) {
       const message = await response.text();

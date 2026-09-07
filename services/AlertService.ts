@@ -27,7 +27,7 @@ const SUPER_ADMIN_HEADERS = {
 export const alertService = {
 
   async getAll(): Promise<Alert[]> {
-    const response = await fetch(`${API_URL}/alertes`, {
+    const response = await fetch(`${API_URL}/alerts`, {
       method: "GET",
       headers: SUPER_ADMIN_HEADERS,
     });

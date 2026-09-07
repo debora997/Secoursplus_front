@@ -8,9 +8,11 @@ export interface Caserne {
   longitude?: number;
 }
 
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  "http://localhost:8080/api/super-admin";
+// 🟢 1. Récupération de l'URL de base (ex: http://192.168.1.17:8080/api)
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+
+// 🟢 2. Route complète pour les casernes sous super-admin
+const CASERNES_API_URL = `${BASE_URL}/super-admin/casernes`;
 
 const SUPER_ADMIN_HEADERS = {
   "Content-Type": "application/json",
@@ -19,7 +21,8 @@ const SUPER_ADMIN_HEADERS = {
 
 export const caserneService = {
   async getAll(): Promise<Caserne[]> {
-    const res = await fetch(`${API_URL}/casernes`, {
+    // 🟢 Appelle : http://192.168.1.17:8080/api/super-admin/casernes
+    const res = await fetch(CASERNES_API_URL, {
       method: "GET",
       headers: SUPER_ADMIN_HEADERS,
     });
