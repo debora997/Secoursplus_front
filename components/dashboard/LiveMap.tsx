@@ -21,6 +21,13 @@ const createCustomIcon = (status: EmergencyAlert["status"]) => {
       ? "#dc2626" // 🔴 Nouvelle
       : "#f59e0b"; // 🟠 En cours
 
+      // Corrige le problème de chemin d'images par défaut Leaflet
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+});
+
   return L.divIcon({
     className: "custom-leaflet-marker",
     html: `
@@ -249,6 +256,20 @@ export default function RealLiveMap({
             );
           })}
         </MapContainer>
+        {/* Marqueur de la position du casernement/poste */}
+{userLocation && (
+  <Marker
+    position={userLocation}
+    icon={L.divIcon({
+      className: "custom-user-marker",
+      html: `<div style="background-color: #2563eb; width: 16px; height: 16px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 8px #2563eb;"></div>`,
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+    })}
+  >
+    <Popup>Votre position actuelle</Popup>
+  </Marker>
+)}
 
         {/* ===================================================
             LÉGENDE DE LA CARTE

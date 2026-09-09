@@ -1,85 +1,200 @@
-import { Client } from "@stomp/stompjs";
+import { Client, StompSubscription } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 
 // =========================================================
-// ADRESSE DU BACKEND
-// Remplace cette valeur par l'IP de ton PC si tu testes sur le réseau local
-// Exemple : "http://192.168.1.50:8080"
+// URL DU BACKEND
 // =========================================================
-const BACKEND_HOST = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+
+const RAW_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+
+// Supprime /api ou /api/ à la fin si présent
+const BACKEND_HOST = RAW_URL.replace(/\/api\/?$/, "");
+
+// =========================================================
+// CLIENT STOMP UNIQUE & ÉTATS GLOBAUX
+// =========================================================
 
 let client: Client | null = null;
 
-export const connectWebSocket = (onAlertReceived: (alert: any) => void) => {
-  // 1. Instanciation du client STOMP unique
-  if (!client) {
-    client = new Client({
-      webSocketFactory: () => new SockJS(`${BACKEND_HOST}/ws`),
-      reconnectDelay: 5000,
-      heartbeatIncoming: 4000,
-      heartbeatOutgoing: 4000,
+// Liste des callbacks du dashboard (Pattern Pub/Sub)
+const alertListeners = new Set<(alert: any) => void>();
 
-      onConnect: () => {
-        console.log("🟢 WebSocket STOMP connecté avec succès.");
-      },
+// Subscription STOMP unique
+let subscription: StompSubscription | null = null;
 
-      onStompError: (frame) => {
-        console.error("🔴 Erreur STOMP :", frame.headers["message"], frame.body);
-      },
+// =========================================================
+// CRÉATION DU CLIENT
+// =========================================================
 
-      onWebSocketClose: () => {
-        console.log("🔌 Connexion WebSocket fermée.");
-      },
-    });
-  }
+function createClient(): Client {
+  const stompClient = new Client({
+    webSocketFactory: () => {
+      console.log(`🔌 Connexion vers ${BACKEND_HOST}/ws`);
+      return new SockJS(`${BACKEND_HOST}/ws`);
+    },
 
-  // 2. Activer le client s'il ne l'est pas encore
-  if (!client.active) {
-    client.activate();
-  }
+    reconnectDelay: 5000,
 
-  // 3. Gestion de la souscription
-  let subscription: any = null;
+    heartbeatIncoming: 4000,
+    heartbeatOutgoing: 4000,
 
-  const subscribeToTopic = () => {
-    if (client && client.connected) {
-      subscription = client.subscribe("/topic/alertes", (message) => {
+    debug: (message) => {
+      // Décommentez pour voir tous les frames STOMP bas niveau
+      // console.log("STOMP:", message);
+    },
+
+    onConnect: () => {
+      console.log("🟢 WebSocket STOMP connecté avec succès.");
+
+      // Nettoie un éventuel abonnement résiduel avant de ré-s'abonner
+      if (subscription) {
         try {
-          const alert = JSON.parse(message.body);
-          console.log("🚨 Nouvelle alerte reçue via WebSocket :", alert);
-          onAlertReceived(alert);
-        } catch (error) {
-          console.error("❌ Erreur de parsing JSON de l'alerte :", error);
+          subscription.unsubscribe();
+        } catch {
+          // Ignorer si la session était déjà fermée
         }
-      });
-    }
-  };
+        subscription = null;
+      }
 
-  // Si déjà connecté, on s'abonne immédiatement
-  if (client.connected) {
-    subscribeToTopic();
-  } else {
-    // Sinon, on attend l'événement de connexion
-    const originalOnConnect = client.onConnect;
-    client.onConnect = (frame) => {
-      if (originalOnConnect) originalOnConnect(frame);
-      subscribeToTopic();
-    };
+      // Inscription au canal général des alertes
+      subscription = stompClient.subscribe(
+        "/topic/alertes",
+        (message) => {
+          try {
+            const alert = JSON.parse(message.body);
+
+            console.log(
+              "🚨 Nouvelle alerte reçue via WebSocket :",
+              alert
+            );
+
+            // Diffuse l'alerte à tous les listeners enregistrés
+            alertListeners.forEach((listener) => {
+              try {
+                listener(alert);
+              } catch (error) {
+                console.error(
+                  "❌ Erreur dans le listener WebSocket :",
+                  error
+                );
+              }
+            });
+          } catch (error) {
+            console.error(
+              "❌ Erreur de parsing JSON de l'alerte :",
+              error
+            );
+          }
+        }
+      );
+
+      console.log("📡 Abonné à /topic/alertes");
+    },
+
+    onStompError: (frame) => {
+      console.error(
+        "🔴 Erreur STOMP :",
+        frame.headers["message"],
+        frame.body
+      );
+    },
+
+    onWebSocketClose: () => {
+      console.log("🔌 Connexion WebSocket fermée.");
+      subscription = null;
+    },
+
+    onWebSocketError: (error) => {
+      console.error("❌ Erreur WebSocket :", error);
+    },
+  });
+
+  return stompClient;
+}
+
+// =========================================================
+// CONNEXION & SOUCRIPTION LISTENER
+// =========================================================
+
+export const connectWebSocket = (
+  onAlertReceived: (alert: any) => void
+) => {
+  // Protection SSR (Server-Side Rendering Next.js)
+  if (typeof window === "undefined") {
+    return () => {};
   }
 
-  // 4. Fonction de cleanup retournée à useEffect pour annuler l'abonnement
+  // Ajoute le listener
+  alertListeners.add(onAlertReceived);
+
+  // Crée le client une seule fois (Singleton)
+  if (!client) {
+    client = createClient();
+  }
+
+  // Active le client s'il n'est pas encore actif
+  if (!client.active) {
+    console.log("🚀 Activation du WebSocket...");
+    client.activate();
+  } else {
+    console.log("ℹ️ WebSocket déjà actif.");
+  }
+
+  // =======================================================
+  // CLEANUP DU COMPOSANT (useEffect return)
+  // =======================================================
+
   return () => {
-    if (subscription) {
-      subscription.unsubscribe();
-      console.log("🧹 Désabonnement du topic /topic/alertes");
+    // Retire uniquement le listener du composant démonté
+    alertListeners.delete(onAlertReceived);
+    console.log("🧹 Listener WebSocket supprimé.");
+
+    // S'il n'y a plus aucun composant à l'écoute, on ferme la connexion
+    if (alertListeners.size === 0 && client) {
+      console.log(
+        "🛑 Aucun listener restant → désactivation du WebSocket."
+      );
+
+      if (subscription) {
+        try {
+          subscription.unsubscribe();
+        } catch {
+          // Ignorer
+        }
+        subscription = null;
+      }
+
+      client.deactivate();
+      client = null;
     }
   };
 };
 
-export const disconnectWebSocket = () => {
-  if (client) {
-    client.deactivate();
-    client = null;
-    console.log("🛑 Client WebSocket complètement désactivé.");
+// =========================================================
+// DÉCONNEXION COMPLÈTE (Déconnexion utilisateur / Logout)
+// =========================================================
+
+export const disconnectWebSocket = async () => {
+  if (!client) {
+    return;
   }
+
+  console.log("🛑 Déconnexion complète du WebSocket...");
+
+  alertListeners.clear();
+
+  if (subscription) {
+    try {
+      subscription.unsubscribe();
+    } catch {
+      // Ignorer
+    }
+    subscription = null;
+  }
+
+  await client.deactivate();
+  client = null;
+
+  console.log("✅ WebSocket complètement désactivé.");
 };

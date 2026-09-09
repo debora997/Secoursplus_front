@@ -6,7 +6,7 @@ import { connectWebSocket } from "@/services/websocket";
 import DashboardLayout from "../layout/DashboardLayout";
 import StatGrid from "./StatGrid";
 import AlertList from "./AlertList";
-import LiveMap from "./LiveMap";
+import dynamic from "next/dynamic";
 import AlertDetailDrawer from "./AlertDetailDrawer";
 import NewAlertPopup from "./NewAlertPopup";
 
@@ -15,20 +15,51 @@ import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
 const API_URL = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/alerts`;
 
-// =========================================================
-// UTILITAIRE : VÉRIFIER SI LA DATE CORRESPOND À AUJOURD'HUI
-// =========================================================
-function isToday(dateString?: string): boolean {
-  if (!dateString) return false;
-  const alertDate = new Date(dateString);
-  if (isNaN(alertDate.getTime())) return false;
+/**
+ * Normalise et convertit tout format de date (String ISO, Timestamp, Array Jackson)
+ * en un objet Date JavaScript valide.
+ */
+function parseBackendDate(dateInput?: any): Date | null {
+  if (!dateInput) return null;
 
-  const today = new Date();
-  return (
-    alertDate.getDate() === today.getDate() &&
-    alertDate.getMonth() === today.getMonth() &&
-    alertDate.getFullYear() === today.getFullYear()
-  );
+  try {
+    // Si la date arrive sous forme de tableau de nombres [YYYY, MM, DD, HH, mm, ss] (Jackson default)
+    if (Array.isArray(dateInput)) {
+      const [year, month, day, hour = 0, minute = 0, second = 0] = dateInput;
+      return new Date(year, month - 1, day, hour, minute, second);
+    }
+
+    if (typeof dateInput === "number") {
+      return new Date(dateInput);
+    }
+
+    if (typeof dateInput === "string") {
+      const normalizedStr = dateInput.includes("T") ? dateInput : dateInput.replace(" ", "T");
+      const parsed = new Date(normalizedStr);
+      return isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    const parsed = new Date(dateInput);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  } catch (e) {
+    console.warn("⚠️ Impossible de parser la date :", dateInput);
+    return null;
+  }
+}
+
+/**
+ * Vérifie si l'alerte a été créée au cours des dernières 24 heures (86 400 000 ms).
+ */
+function isWithinLast24Hours(dateInput?: any): boolean {
+  const alertDate = parseBackendDate(dateInput);
+  if (!alertDate) return false;
+
+  const now = Date.now();
+  const alertTime = alertDate.getTime();
+  const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+
+  const diff = now - alertTime;
+  return diff >= 0 && diff <= TWENTY_FOUR_HOURS_MS;
 }
 
 export default function Dashboard() {
@@ -36,42 +67,34 @@ export default function Dashboard() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [highlightedId, setHighlightedId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-
-  // Alerte entrante affichée dans le popup
   const [incomingAlert, setIncomingAlert] = useState<EmergencyAlert | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Sirène
   const sirenRef = useRef<HTMLAudioElement | null>(null);
-
-  // Références des cartes d'alertes
   const cardRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
-  // Référence pour suivre la date du jour courante
-  const lastCheckedDateRef = useRef<string>(new Date().toDateString());
+  const LiveMap = dynamic(() => import("./LiveMap"), {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-[350px] w-full items-center justify-center rounded-xl bg-slate-100 text-xs font-semibold text-slate-500">
+        Chargement de la carte...
+      </div>
+    ),
+  });
 
-  // =========================================================
-  // ARRÊTER LA SIRÈNE
-  // =========================================================
   const stopSiren = useCallback(() => {
     if (sirenRef.current) {
       sirenRef.current.pause();
       sirenRef.current.currentTime = 0;
       sirenRef.current = null;
-      console.log("🔇 Sirène coupée");
     }
   }, []);
 
-  // =========================================================
-  // FERMER LE POPUP
-  // =========================================================
   const handleClosePopup = useCallback(() => {
     stopSiren();
     setIncomingAlert(null);
   }, [stopSiren]);
 
-  // =========================================================
-  // NORMALISER LA GRAVITÉ
-  // =========================================================
   function normalizeSeverity(severity: any): string {
     return String(severity ?? "")
       .trim()
@@ -80,12 +103,8 @@ export default function Dashboard() {
       .replace(/[\u0300-\u036f]/g, "");
   }
 
-  // =========================================================
-  // TRANSFORMER LA GRAVITÉ BACKEND EN PRIORITÉ FRONTEND
-  // =========================================================
   function mapSeverityToPriority(severity: any): EmergencyAlert["priority"] {
     const normalizedSeverity = normalizeSeverity(severity);
-
     switch (normalizedSeverity) {
       case "modere":
         return "moyen";
@@ -97,37 +116,39 @@ export default function Dashboard() {
     }
   }
 
-  // =========================================================
-  // FORMAT ALERT (Backend Java -> Frontend)
-  // =========================================================
   function formatAlert(alert: any): EmergencyAlert {
     let mappedStatus: EmergencyAlert["status"] = "nouvelle";
+    const rawStatus = String(alert.status || "").toUpperCase();
 
-    if (alert.status === "RECEIVED") {
-      mappedStatus = "nouvelle";
-    } else if (
-      alert.status === "IN_PROGRESS" ||
-      alert.status === "ACCEPTED" ||
-      alert.status === "ENGAGED"
+    if (
+      rawStatus === "IN_PROGRESS" ||
+      rawStatus === "ACCEPTED" ||
+      rawStatus === "ENGAGED" ||
+      rawStatus === "ENCOURS" ||
+      rawStatus === "EN_COURS"
     ) {
       mappedStatus = "encours";
     } else if (
-      alert.status === "TERMINATED" ||
-      alert.status === "REJECTED" ||
-      alert.status === "REFUSED"
+      rawStatus === "TERMINATED" ||
+      rawStatus === "REJECTED" ||
+      rawStatus === "REFUSED" ||
+      rawStatus === "TERMINEE"
     ) {
       mappedStatus = "terminee";
+    } else {
+      mappedStatus = "nouvelle";
     }
 
     const priority = mapSeverityToPriority(alert.severity);
+    const parsedDate = parseBackendDate(alert.createdAt);
 
     return {
       id: alert.id,
-      type: alert.type ? alert.type.toLowerCase() : "accident",
+      type: alert.type ? String(alert.type).toLowerCase() : "accident",
       status: mappedStatus,
       priority,
-      date: alert.createdAt ? new Date(alert.createdAt).toLocaleDateString() : "",
-      time: alert.createdAt ? new Date(alert.createdAt).toLocaleTimeString() : "",
+      date: parsedDate ? parsedDate.toLocaleDateString() : "",
+      time: parsedDate ? parsedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "",
       createdAt: alert.createdAt ?? new Date().toISOString(),
       location: "Position GPS",
       latitude: alert.latitude ?? null,
@@ -146,88 +167,92 @@ export default function Dashboard() {
   }
 
   // =========================================================
-  // CHARGEMENT INITIAL & RECHARGEMENT (FILTRAGE STRICT DU JOUR)
+  // RÉCUPÉRER TOUTES LES ALERTES DEPUIS MYSQL
   // =========================================================
-  const fetchAlerts = useCallback(() => {
-    fetch(API_URL)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Impossible de récupérer les alertes");
-        }
-        return response.json();
-      })
-      .then((data: any[]) => {
-        // Ne conserve que les alertes dont la date de création est AUJOURD'HUI
-        const todayAlerts = data
-          .filter((item) => isToday(item.createdAt))
-          .map(formatAlert);
+  const fetchAlerts = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      const userString = localStorage.getItem("user");
+      const user = userString ? JSON.parse(userString) : null;
+      const role = user?.role || "CHEF_CASERNE";
 
-        setAlerts(todayAlerts);
-      })
-      .catch((error) => {
-        console.error("❌ Erreur chargement alertes :", error);
+      const response = await fetch(API_URL, {
+        method: "GET",
+        headers: {
+          "X-Admin-Role": role,
+          "Content-Type": "application/json",
+        },
+        cache: "no-store",
       });
+
+      if (!response.ok) {
+        throw new Error(`Impossible de récupérer les alertes (${response.status})`);
+      }
+
+      const data: any = await response.json();
+
+      const rawList: any[] = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.content)
+        ? data.content
+        : [];
+
+      // Filtrage local : Ne garde que les alertes des dernières 24 heures
+      const activeAlerts = rawList
+        .filter((item) => isWithinLast24Hours(item.createdAt))
+        .map(formatAlert);
+
+      setAlerts(activeAlerts);
+    } catch (error) {
+      console.error("❌ Erreur chargement alertes :", error);
+    } finally {
+      setIsRefreshing(false);
+    }
   }, []);
 
   useEffect(() => {
     fetchAlerts();
   }, [fetchAlerts]);
 
-  // =========================================================
-  // DÉTECTEUR DU BASCULEMENT DE MINUIT
-  // =========================================================
+  // Purge périodique : Supprime dynamiquement de l'écran les alertes qui dépassent 24h
   useEffect(() => {
     const interval = setInterval(() => {
-      const currentDateStr = new Date().toDateString();
-      if (currentDateStr !== lastCheckedDateRef.current) {
-        console.log("🌙 Changement de jour détecté ! Réinitialisation du Dashboard.");
-        lastCheckedDateRef.current = currentDateStr;
-
-        // Purge automatique des alertes qui ne datent plus d'aujourd'hui
-        setAlerts((prevAlerts) =>
-          prevAlerts.filter((alert) => isToday(alert.createdAt))
-        );
-      }
-    }, 30000); // Vérification légère toutes les 30 secondes
+      setAlerts((prevAlerts) =>
+        prevAlerts.filter((alert) => isWithinLast24Hours(alert.createdAt))
+      );
+    }, 60000); // Exécution toutes les 60 secondes
 
     return () => clearInterval(interval);
   }, []);
 
-  // =========================================================
-  // WEBSOCKET (RÉCEPTION ET VERIFICATION DU JOUR)
-  // =========================================================
+  // WebSocket : Réception des alertes en temps réel
   useEffect(() => {
-    const unsubscribe: (() => void) | void = connectWebSocket((nouvelleAlerte) => {
-      // 1. Vérification : l'alerte provient-elle d'aujourd'hui ?
-      if (!isToday(nouvelleAlerte.createdAt)) {
-        console.log("ℹ️ Alerte ignorée car elle ne date pas d'aujourd'hui :", nouvelleAlerte.id);
-        return;
-      }
+    const unsubscribe = connectWebSocket((nouvelleAlerte) => {
+      if (!isWithinLast24Hours(nouvelleAlerte.createdAt)) return;
 
-      // 2. Formater l'alerte du jour
       const alertFormatted = formatAlert(nouvelleAlerte);
 
-      // 3. Mettre à jour la liste des alertes (Création ou Mise à jour d'état)
       setAlerts((prev) => {
         const exists = prev.some((alert) => alert.id === alertFormatted.id);
         if (exists) {
-          return prev.map((alert) => (alert.id === alertFormatted.id ? alertFormatted : alert));
+          return prev.map((alert) =>
+            alert.id === alertFormatted.id ? alertFormatted : alert
+          );
         }
         return [alertFormatted, ...prev];
       });
 
-      // 4. Déclencher Popup et Sirène uniquement pour les nouvelles alertes non traitées
-      if (nouvelleAlerte.status === "RECEIVED") {
+      if (String(nouvelleAlerte.status).toUpperCase() === "RECEIVED") {
         setIncomingAlert(alertFormatted);
         stopSiren();
 
-        const audio = new Audio("/sounds/siren.mp3");
-        audio.loop = true;
-        sirenRef.current = audio;
+        const audioInstance = new Audio("/sounds/siren.mp3");
+        audioInstance.loop = true;
+        sirenRef.current = audioInstance;
 
-        audio.play()
-          .then(() => console.log("🔊 Sirène démarrée"))
-          .catch((error) => console.warn("⚠️ Sirène bloquée par le navigateur :", error));
+        audioInstance.play().catch((error) => {
+          console.warn("⚠️ Sirène bloquée par le navigateur :", error);
+        });
       }
     });
 
@@ -239,24 +264,15 @@ export default function Dashboard() {
     };
   }, [stopSiren]);
 
-  // =========================================================
-  // CLEANUP AU DÉMONTAGE
-  // =========================================================
-  useEffect(() => {
-    return () => {
-      stopSiren();
-    };
-  }, [stopSiren]);
-
-  // =========================================================
-  // MODIFIER LE STATUT AVEC GESTION DES CONFLITS (CONCURRENCE)
-  // =========================================================
-  async function updateStatus(id: number, status: "encours" | "terminee" | "nouvelle") {
+  // Modification du statut
+  async function updateStatus(
+    id: number,
+    status: "encours" | "terminee" | "nouvelle"
+  ) {
     stopSiren();
     setIncomingAlert(null);
     setSelectedId(null);
 
-    // Récupération des informations de la caserne / utilisateur connecté
     const userString = localStorage.getItem("user");
     const user = userString ? JSON.parse(userString) : null;
     const caserneNom = user?.caserne || user?.caserneName || "";
@@ -265,6 +281,10 @@ export default function Dashboard() {
     let backendStatus = "RECEIVED";
     if (status === "encours") backendStatus = "IN_PROGRESS";
     if (status === "terminee") backendStatus = "TERMINATED";
+
+    setAlerts((prev) =>
+      prev.map((alert) => (alert.id === id ? { ...alert, status } : alert))
+    );
 
     try {
       const url = `${API_URL}/${id}/status?status=${backendStatus}&caserne=${encodeURIComponent(caserneNom)}`;
@@ -277,11 +297,10 @@ export default function Dashboard() {
         },
       });
 
-      // CAS CONCURRENCE (HTTP 409) : Une autre caserne a déjà validé
       if (response.status === 409) {
         const errorText = await response.text();
         alert(`⚠️ Intervention déjà prise en charge : ${errorText}`);
-        fetchAlerts(); // Recharger les données pour synchroniser l'affichage
+        await fetchAlerts();
         return;
       }
 
@@ -290,37 +309,22 @@ export default function Dashboard() {
         throw new Error(errorText);
       }
 
-      // Mise à jour optimiste du state local
-      setAlerts((prev) =>
-        prev.map((alert) => (alert.id === id ? { ...alert, status } : alert))
-      );
+      await fetchAlerts();
     } catch (error) {
       console.error("❌ Erreur modification statut :", error);
+      await fetchAlerts();
     }
   }
 
-  // =========================================================
-  // GESTIONNAIRES D'ÉVÉNEMENTS
-  // =========================================================
-  function handleAccept(id: number) {
-    updateStatus(id, "encours");
-  }
-
-  function handleReject(id: number) {
-    updateStatus(id, "terminee");
-  }
-
+  function handleAccept(id: number) { updateStatus(id, "encours"); }
+  function handleReject(id: number) { updateStatus(id, "terminee"); }
   function handleTransfer(id: number) {
     stopSiren();
     setIncomingAlert(null);
     setSelectedId(null);
     fetchAlerts();
   }
-
-  function handleTerminate(id: number) {
-    updateStatus(id, "terminee");
-  }
-
+  function handleTerminate(id: number) { updateStatus(id, "terminee"); }
   function handleDetails(id: number) {
     stopSiren();
     setIncomingAlert(null);
@@ -338,29 +342,43 @@ export default function Dashboard() {
 
   const selectedAlert = alerts.find((alert) => alert.id === selectedId) ?? null;
 
-  // =========================================================
-  // RENDER
-  // =========================================================
   return (
     <ProtectedRoute>
       <DashboardLayout>
         <div className="space-y-7">
-          {/* STATISTIQUES (Basées uniquement sur les alertes du jour) */}
-          <StatGrid alerts={alerts} availableFirefighters={8} totalFirefighters={14} />
+          <StatGrid
+            alerts={alerts}
+            availableFirefighters={8}
+            totalFirefighters={14}
+          />
 
-          {/* ALERTES + CARTE */}
           <div className="grid grid-cols-[1fr_410px] gap-6 max-[1180px]:grid-cols-1">
-            {/* LISTE ALERTES DU JOUR */}
             <section className="rounded-2xl border border-gray-200 bg-white shadow">
-              <div className="flex justify-between border-b px-6 py-5">
+              <div className="flex items-center justify-between border-b px-6 py-5">
                 <div>
-                  <h2 className="text-lg font-semibold">Alertes & Interventions du jour</h2>
-                  <p className="text-sm text-gray-500">Alertes reçues en temps réel aujourd'hui</p>
+                  <h2 className="text-lg font-semibold">
+                    Alertes & Interventions des dernières 24h
+                  </h2>
+                  <p className="text-sm text-gray-500">
+                    Alertes reçues en temps réel au cours des dernières 24 heures
+                  </p>
                 </div>
-                <span className="rounded-full bg-red-50 px-3 py-1 text-xs text-red-600">
-                  {alerts.filter((alert) => alert.status !== "terminee").length} actives
-                </span>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={fetchAlerts}
+                    disabled={isRefreshing}
+                    className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-50"
+                  >
+                    <span className={isRefreshing ? "animate-spin" : ""}>🔄</span>
+                    {isRefreshing ? "Chargement..." : "Actualiser"}
+                  </button>
+                  <span className="rounded-full bg-red-50 px-3 py-1 text-xs text-red-600">
+                    {alerts.filter((alert) => alert.status !== "terminee").length}{" "}
+                    actives
+                  </span>
+                </div>
               </div>
+
               <div className="p-6">
                 <AlertList
                   alerts={alerts}
@@ -377,26 +395,28 @@ export default function Dashboard() {
               </div>
             </section>
 
-            {/* CARTE (Affiche uniquement les positions des alertes du jour) */}
             <section className="rounded-2xl border border-gray-200 bg-white shadow">
               <div className="border-b px-6 py-5">
-                <h2 className="text-lg font-semibold">Carte des interventions</h2>
+                <h2 className="text-lg font-semibold">
+                  Carte des interventions
+                </h2>
               </div>
               <div className="p-5">
-                <LiveMap alerts={alerts} onSelectAlert={focusAlertFromMap} />
+                <LiveMap
+                  alerts={alerts}
+                  onSelectAlert={focusAlertFromMap}
+                />
               </div>
             </section>
           </div>
         </div>
 
-        {/* POPUP FLOTTANT DE NOUVELLE ALERTE */}
         <NewAlertPopup
           alert={incomingAlert}
           onClose={handleClosePopup}
           onDetails={handleDetails}
         />
 
-        {/* DRAWER DÉTAILS */}
         <AlertDetailDrawer
           alert={selectedAlert}
           onClose={() => {
