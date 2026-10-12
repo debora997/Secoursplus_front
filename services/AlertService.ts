@@ -2,7 +2,6 @@ export interface Alert {
   id: number;
   type: string;
   severity: string;
-  victims: number;
   description: string;
   latitude?: number;
   longitude?: number;
@@ -11,6 +10,7 @@ export interface Alert {
   caserne?: string; // 👈 Champ ajouté pour stocker la caserne affectée
   createdAt: string;
   citoyenId?: number;
+  victims?: number;
   citoyenNom?: string;
   citoyenTelephone?: string;
 }

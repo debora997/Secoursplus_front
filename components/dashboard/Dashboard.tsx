@@ -1,17 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { connectWebSocket } from "@/services/websocket";
+import dynamic from "next/dynamic";
 
+import { connectWebSocket } from "@/services/websocket";
 import DashboardLayout from "../layout/DashboardLayout";
 import StatGrid from "./StatGrid";
 import AlertList from "./AlertList";
-import dynamic from "next/dynamic";
 import AlertDetailDrawer from "./AlertDetailDrawer";
 import NewAlertPopup from "./NewAlertPopup";
-
-import { EmergencyAlert } from "@/types/alert";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
+
+import { EmergencyAlert, AlertStatus, EmergencyType } from "@/types/alert";
 
 const API_URL = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/alerts`;
 
@@ -23,7 +23,6 @@ function parseBackendDate(dateInput?: any): Date | null {
   if (!dateInput) return null;
 
   try {
-    // Si la date arrive sous forme de tableau de nombres [YYYY, MM, DD, HH, mm, ss] (Jackson default)
     if (Array.isArray(dateInput)) {
       const [year, month, day, hour = 0, minute = 0, second = 0] = dateInput;
       return new Date(year, month - 1, day, hour, minute, second);
@@ -34,7 +33,9 @@ function parseBackendDate(dateInput?: any): Date | null {
     }
 
     if (typeof dateInput === "string") {
-      const normalizedStr = dateInput.includes("T") ? dateInput : dateInput.replace(" ", "T");
+      const normalizedStr = dateInput.includes("T")
+        ? dateInput
+        : dateInput.replace(" ", "T");
       const parsed = new Date(normalizedStr);
       return isNaN(parsed.getTime()) ? null : parsed;
     }
@@ -72,6 +73,12 @@ export default function Dashboard() {
 
   const sirenRef = useRef<HTMLAudioElement | null>(null);
   const cardRefs = useRef<Record<number, HTMLDivElement | null>>({});
+
+  // Récupération de la caserne active depuis localStorage
+  const userString =
+    typeof window !== "undefined" ? localStorage.getItem("user") : null;
+  const user = userString ? JSON.parse(userString) : null;
+  const currentCaserne: string = user?.caserne || user?.caserneName || "";
 
   const LiveMap = dynamic(() => import("./LiveMap"), {
     ssr: false,
@@ -116,9 +123,9 @@ export default function Dashboard() {
     }
   }
 
-  function formatAlert(alert: any): EmergencyAlert {
-    let mappedStatus: EmergencyAlert["status"] = "nouvelle";
-    const rawStatus = String(alert.status || "").toUpperCase();
+  const formatAlert = useCallback((alert: any): EmergencyAlert => {
+    let mappedStatus: AlertStatus = "nouvelle";
+    const rawStatus = String(alert.status || "PENDING").toUpperCase();
 
     if (
       rawStatus === "IN_PROGRESS" ||
@@ -135,26 +142,43 @@ export default function Dashboard() {
       rawStatus === "TERMINEE"
     ) {
       mappedStatus = "terminee";
-    } else {
-      mappedStatus = "nouvelle";
+    } else if (
+      rawStatus === "TRANSFERRED" ||
+      rawStatus === "TRANSFEREE" ||
+      rawStatus === "TRANSFER"
+    ) {
+      mappedStatus = "TRANSFERRED";
     }
 
     const priority = mapSeverityToPriority(alert.severity);
     const parsedDate = parseBackendDate(alert.createdAt);
 
+    // Formate et caste le type d'urgence pour correspondre à EmergencyType
+    const alertType = alert.type
+      ? (String(alert.type).toLowerCase() as EmergencyType)
+      : ("accident" as EmergencyType);
+
     return {
       id: alert.id,
-      type: alert.type ? String(alert.type).toLowerCase() : "accident",
+      type: alertType,
       status: mappedStatus,
       priority,
       date: parsedDate ? parsedDate.toLocaleDateString() : "",
-      time: parsedDate ? parsedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "",
+      time: parsedDate
+        ? parsedDate.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "",
       createdAt: alert.createdAt ?? new Date().toISOString(),
-      location: "Position GPS",
+      location: alert.location || "Position GPS",
       latitude: alert.latitude ?? null,
       longitude: alert.longitude ?? null,
       position: { x: 50, y: 50 },
       description: alert.description ?? "",
+      caserne: alert.caserne,
+      caserneTransfertPar: alert.caserneTransfertPar,
+      caserneTransfertA: alert.caserneTransfertA || alert.caserneDestinataire,
       reporterName: alert.citoyenNom ?? "Citoyen",
       reporterPhone: alert.citoyenTelephone ?? "Non disponible",
       gps:
@@ -163,8 +187,9 @@ export default function Dashboard() {
           : "Position non disponible",
       photosCount: alert.photoPaths?.length ?? 0,
       photoPaths: alert.photoPaths ?? [],
+      victims: alert.victims ?? alert.victimsCount ?? alert.nombreVictimes ?? 0,
     };
-  }
+  }, []);
 
   // =========================================================
   // RÉCUPÉRER TOUTES LES ALERTES DEPUIS MYSQL
@@ -172,9 +197,9 @@ export default function Dashboard() {
   const fetchAlerts = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const userString = localStorage.getItem("user");
-      const user = userString ? JSON.parse(userString) : null;
-      const role = user?.role || "CHEF_CASERNE";
+      const userStr = localStorage.getItem("user");
+      const currentUser = userStr ? JSON.parse(userStr) : null;
+      const role = currentUser?.role || "CHEF_CASERNE";
 
       const response = await fetch(API_URL, {
         method: "GET",
@@ -186,7 +211,9 @@ export default function Dashboard() {
       });
 
       if (!response.ok) {
-        throw new Error(`Impossible de récupérer les alertes (${response.status})`);
+        throw new Error(
+          `Impossible de récupérer les alertes (${response.status})`
+        );
       }
 
       const data: any = await response.json();
@@ -208,19 +235,19 @@ export default function Dashboard() {
     } finally {
       setIsRefreshing(false);
     }
-  }, []);
+  }, [formatAlert]);
 
   useEffect(() => {
     fetchAlerts();
   }, [fetchAlerts]);
 
-  // Purge périodique : Supprime dynamiquement de l'écran les alertes qui dépassent 24h
+  // Purge périodique : Supprime dynamiquement les alertes qui dépassent 24h
   useEffect(() => {
     const interval = setInterval(() => {
       setAlerts((prevAlerts) =>
         prevAlerts.filter((alert) => isWithinLast24Hours(alert.createdAt))
       );
-    }, 60000); // Exécution toutes les 60 secondes
+    }, 60000);
 
     return () => clearInterval(interval);
   }, []);
@@ -262,7 +289,7 @@ export default function Dashboard() {
         unsubscribe();
       }
     };
-  }, [stopSiren]);
+  }, [formatAlert, stopSiren]);
 
   // Modification du statut
   async function updateStatus(
@@ -273,9 +300,7 @@ export default function Dashboard() {
     setIncomingAlert(null);
     setSelectedId(null);
 
-    const userString = localStorage.getItem("user");
-    const user = userString ? JSON.parse(userString) : null;
-    const caserneNom = user?.caserne || user?.caserneName || "";
+    const caserneNom = currentCaserne;
     const role = user?.role || "CHEF_CASERNE";
 
     let backendStatus = "RECEIVED";
@@ -287,7 +312,9 @@ export default function Dashboard() {
     );
 
     try {
-      const url = `${API_URL}/${id}/status?status=${backendStatus}&caserne=${encodeURIComponent(caserneNom)}`;
+      const url = `${API_URL}/${id}/status?status=${backendStatus}&caserne=${encodeURIComponent(
+        caserneNom
+      )}`;
 
       const response = await fetch(url, {
         method: "PUT",
@@ -316,15 +343,43 @@ export default function Dashboard() {
     }
   }
 
-  function handleAccept(id: number) { updateStatus(id, "encours"); }
-  function handleReject(id: number) { updateStatus(id, "terminee"); }
-  function handleTransfer(id: number) {
-    stopSiren();
-    setIncomingAlert(null);
-    setSelectedId(null);
-    fetchAlerts();
+  // Fonction de transfert vers une autre caserne
+  const handleTransfer = async (id: number, targetCaserne: string) => {
+    try {
+      const res = await fetch(`${API_URL}/${id}/transfer`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Admin-Role": localStorage.getItem("role") || "CHEF_CASERNE",
+        },
+        body: JSON.stringify({
+          caserneTransfertPar: currentCaserne,
+          caserneDestinataire: targetCaserne,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Erreur réseau lors du transfert de l'alerte");
+      }
+
+      stopSiren();
+      setIncomingAlert(null);
+      setSelectedId(null);
+      await fetchAlerts();
+    } catch (error) {
+      console.error("Erreur transfert :", error);
+    }
+  };
+
+  function handleAccept(id: number) {
+    updateStatus(id, "encours");
   }
-  function handleTerminate(id: number) { updateStatus(id, "terminee"); }
+  function handleReject(id: number) {
+    updateStatus(id, "terminee");
+  }
+  function handleTerminate(id: number) {
+    updateStatus(id, "terminee");
+  }
   function handleDetails(id: number) {
     stopSiren();
     setIncomingAlert(null);
@@ -340,14 +395,42 @@ export default function Dashboard() {
     }
   }
 
-  const selectedAlert = alerts.find((alert) => alert.id === selectedId) ?? null;
+  // Filtrage selon l'émetteur et le destinataire du transfert
+  const visibleAlerts = alerts.filter((alert) => {
+    const isTransferred =
+      alert.status === "TRANSFERRED" || alert.status === "transferee";
+
+    // Si l'alerte n'est pas transférée, on la conserve
+    if (!isTransferred) {
+      return true;
+    }
+
+    const isEmetteur =
+      alert.caserneTransfertPar &&
+      alert.caserneTransfertPar.toLowerCase() === currentCaserne.toLowerCase();
+
+    const isRecepteur =
+      alert.caserneTransfertA &&
+      (alert.caserneTransfertA === "TOUTES" ||
+        alert.caserneTransfertA.toLowerCase() === currentCaserne.toLowerCase());
+
+    // Conserver si la caserne est à l'origine du transfert OU destinataire
+    if (isEmetteur || isRecepteur) {
+      return true;
+    }
+
+    return false;
+  });
+
+  const selectedAlert =
+    visibleAlerts.find((alert) => alert.id === selectedId) ?? null;
 
   return (
     <ProtectedRoute>
       <DashboardLayout>
         <div className="space-y-7">
           <StatGrid
-            alerts={alerts}
+            alerts={visibleAlerts}
             availableFirefighters={8}
             totalFirefighters={14}
           />
@@ -369,11 +452,16 @@ export default function Dashboard() {
                     disabled={isRefreshing}
                     className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-50"
                   >
-                    <span className={isRefreshing ? "animate-spin" : ""}>🔄</span>
+                    <span className={isRefreshing ? "animate-spin" : ""}>
+                      🔄
+                    </span>
                     {isRefreshing ? "Chargement..." : "Actualiser"}
                   </button>
                   <span className="rounded-full bg-red-50 px-3 py-1 text-xs text-red-600">
-                    {alerts.filter((alert) => alert.status !== "terminee").length}{" "}
+                    {
+                      visibleAlerts.filter((alert) => alert.status !== "terminee")
+                        .length
+                    }{" "}
                     actives
                   </span>
                 </div>
@@ -381,7 +469,7 @@ export default function Dashboard() {
 
               <div className="p-6">
                 <AlertList
-                  alerts={alerts}
+                  alerts={visibleAlerts}
                   searchQuery={searchQuery}
                   onViewDetails={(id) => {
                     stopSiren();
@@ -403,7 +491,7 @@ export default function Dashboard() {
               </div>
               <div className="p-5">
                 <LiveMap
-                  alerts={alerts}
+                  alerts={visibleAlerts}
                   onSelectAlert={focusAlertFromMap}
                 />
               </div>
@@ -419,6 +507,7 @@ export default function Dashboard() {
 
         <AlertDetailDrawer
           alert={selectedAlert}
+          isOpen={!!selectedId}
           onClose={() => {
             stopSiren();
             setSelectedId(null);
@@ -427,6 +516,7 @@ export default function Dashboard() {
           onRefuse={handleReject}
           onTransfer={handleTransfer}
           onTerminate={handleTerminate}
+          currentCaserne={currentCaserne}
         />
       </DashboardLayout>
     </ProtectedRoute>

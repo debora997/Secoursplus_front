@@ -8,7 +8,10 @@ export type EmergencyType =
 export type AlertStatus =
   | "nouvelle"
   | "encours"
-  | "terminee";
+  | "terminee"
+  | "TRANSFERRED"
+  | "transferee"
+  | "rejete";
 
 export type Priority =
   | "critique"
@@ -16,9 +19,18 @@ export type Priority =
   | "moyen";
 
 export type Caserne =
-| "Sogoniko"
-| "Bamako"
-| "Quartier Mali";
+  | "Sogoniko"
+  | "Bamako"
+  | "Quartier Mali"
+  | (string & {});
+
+export interface CaserneItem {
+  id: number | string;
+  nom: string;
+  code?: string;
+  ville?: string;
+  telephone?: string;
+}
 
 export interface MapPosition {
   x: number;
@@ -43,10 +55,14 @@ export interface EmergencyAlert {
 
   position: MapPosition;
 
+  victims: number | null; // Nombre de victimes (peut être null si non renseigné)
+
   description: string;
 
-  caserne?: string; // Nom de la caserne qui a pris en charge l'alerte
-  
+  caserne?: string; // Nom de la caserne qui a pris en charge l'alerte (ex: "Sogoniko")
+  caserneTransfertPar?: string; // Nom de la caserne ayant transféré l'alerte (ex: "Quartier Mali")
+  caserneTransfertA?: string; // Nom de la caserne réceptrice du transfert (ex: "Sogoniko")
+
   reporterName: string;
   reporterPhone: string;
 
@@ -64,10 +80,13 @@ export const TYPE_LABEL: Record<EmergencyType, string> = {
   gaz: "Fuite de gaz",
 };
 
-export const STATUS_LABEL: Record<AlertStatus, string> = {
+export const STATUS_LABEL: Record<string, string> = {
   nouvelle: "Nouvelle",
   encours: "En cours",
   terminee: "Terminée",
+  TRANSFERRED: "Transférée",
+  transferee: "Transférée",
+  rejete: "Refusée",
 };
 
 export const PRIORITY_LABEL: Record<Priority, string> = {

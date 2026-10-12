@@ -17,12 +17,13 @@ import {
   ChevronRight,
   RefreshCw,
   Building2,
+  ArrowRightLeft,
 } from "lucide-react";
 
-const API_URL = "http://localhost:8080/api/alerts";
+const API_URL = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/alerts`;
 
 type PeriodFilter = "today" | "week" | "month" | "year" | "all";
-type StatusFilter = "all" | "nouvelle" | "encours" | "terminee";
+type StatusFilter = "all" | "nouvelle" | "encours" | "terminee" | "transferee";
 
 export default function HistoryPage() {
   const [alerts, setAlerts] = useState<EmergencyAlert[]>([]);
@@ -34,8 +35,10 @@ export default function HistoryPage() {
 
   useEffect(() => {
     // Récupération dynamique depuis le stockage local ou AuthContext si disponible
-    const userCaserne = localStorage.getItem("caserneNom");
-    if (userCaserne) setCurrentCaserne(userCaserne);
+    const userString = localStorage.getItem("user");
+    const user = userString ? JSON.parse(userString) : null;
+    const caserne = user?.caserne || user?.caserneName || localStorage.getItem("caserneNom") || "Sogoniko";
+    setCurrentCaserne(caserne);
   }, []);
 
   // Filtres
@@ -65,30 +68,40 @@ export default function HistoryPage() {
 
   const formatAlert = useCallback((alert: any): EmergencyAlert => {
     let mappedStatus: EmergencyAlert["status"] = "nouvelle";
-    if (alert.status === "RECEIVED") mappedStatus = "nouvelle";
-    else if (
-      alert.status === "IN_PROGRESS" ||
-      alert.status === "ACCEPTED" ||
-      alert.status === "ENGAGED"
-    )
+    const rawStatus = String(alert.status || "RECEIVED").toUpperCase();
+
+    if (
+      rawStatus === "IN_PROGRESS" ||
+      rawStatus === "ACCEPTED" ||
+      rawStatus === "ENGAGED"
+    ) {
       mappedStatus = "encours";
-    else if (
-      alert.status === "TERMINATED" ||
-      alert.status === "REJECTED" ||
-      alert.status === "REFUSED"
-    )
+    } else if (
+      rawStatus === "TERMINATED" ||
+      rawStatus === "REJECTED" ||
+      rawStatus === "REFUSED"
+    ) {
       mappedStatus = "terminee";
+    } else if (
+      rawStatus === "TRANSFERRED" ||
+      rawStatus === "TRANSFEREE" ||
+      rawStatus === "TRANSFER"
+    ) {
+      mappedStatus = "TRANSFERRED";
+    }
 
     return {
       id: alert.id,
       type: alert.type ? alert.type.toLowerCase() : "accident",
       status: mappedStatus,
       priority: mapSeverityToPriority(alert.severity),
-      caserne: alert.caserne ?? alert.caserneNom ?? null, // Mappage de la caserne
+      caserne: alert.caserne ?? alert.caserneNom ?? null, // Caserne en charge
+      caserneTransfertPar: alert.caserneTransfertPar ?? null,
+      caserneTransfertA: alert.caserneTransfertA ?? alert.caserneDestinataire ?? null,
       date: alert.createdAt ? new Date(alert.createdAt).toLocaleDateString("fr-FR") : "",
       time: alert.createdAt ? new Date(alert.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "",
       createdAt: alert.createdAt ?? new Date().toISOString(),
-      location: "Position GPS",
+      location: alert.location || "Position GPS",
       latitude: alert.latitude ?? null,
       longitude: alert.longitude ?? null,
       position: { x: 50, y: 50 },
@@ -101,6 +114,7 @@ export default function HistoryPage() {
           : "Position non disponible",
       photosCount: alert.photoPaths?.length ?? 0,
       photoPaths: alert.photoPaths ?? [],
+      victims: alert.victims ?? alert.victimsCount ?? alert.nombreVictimes ?? 0,
     };
   }, []);
 
@@ -114,7 +128,8 @@ export default function HistoryPage() {
       const response = await fetch(API_URL);
       if (!response.ok) throw new Error("Erreur lors de la récupération de l'historique");
       const data = await response.json();
-      const formatted = data.map(formatAlert);
+      const rawList = Array.isArray(data) ? data : Array.isArray(data?.content) ? data.content : [];
+      const formatted = rawList.map(formatAlert);
       setAlerts(formatted);
     } catch (err: any) {
       setError(err.message ?? "Impossible de charger l'historique");
@@ -182,7 +197,11 @@ export default function HistoryPage() {
 
       let matchesStatus = true;
       if (statusFilter !== "all") {
-        matchesStatus = alert.status === statusFilter;
+        if (statusFilter === "transferee") {
+          matchesStatus = alert.status === "TRANSFERRED" || alert.status === "transferee";
+        } else {
+          matchesStatus = alert.status === statusFilter;
+        }
       }
 
       let matchesSearch = true;
@@ -193,6 +212,8 @@ export default function HistoryPage() {
           alert.reporterPhone.toLowerCase().includes(query) ||
           alert.description.toLowerCase().includes(query) ||
           (alert.caserne ?? "").toLowerCase().includes(query) ||
+          (alert.caserneTransfertPar ?? "").toLowerCase().includes(query) ||
+          (alert.caserneTransfertA ?? "").toLowerCase().includes(query) ||
           alert.id.toString().includes(query) ||
           (TYPE_LABEL[alert.type] ?? "").toLowerCase().includes(query);
       }
@@ -209,7 +230,8 @@ export default function HistoryPage() {
     const terminees = filteredAlerts.filter((a) => a.status === "terminee").length;
     const encours = filteredAlerts.filter((a) => a.status === "encours").length;
     const nouvelles = filteredAlerts.filter((a) => a.status === "nouvelle").length;
-    return { total, terminees, encours, nouvelles };
+    const transferees = filteredAlerts.filter((a) => a.status === "TRANSFERRED" || a.status === "transferee").length;
+    return { total, terminees, encours, nouvelles, transferees };
   }, [filteredAlerts]);
 
   const getStatusBadge = (status: EmergencyAlert["status"]) => {
@@ -235,11 +257,43 @@ export default function HistoryPage() {
             Terminée
           </span>
         );
+      case "TRANSFERRED":
+      case "transferee":
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 border border-blue-200">
+            <ArrowRightLeft className="h-3 w-3 text-blue-600" />
+            Transférée
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-700 border border-gray-200">
+            {status}
+          </span>
+        );
     }
   };
 
-  const getCaserneBadge = (caserne?: string) => {
-    if (!caserne) {
+  const getCaserneBadge = (alert: EmergencyAlert) => {
+    const isTransferred = alert.status === "TRANSFERRED" || alert.status === "transferee";
+
+    if (isTransferred && alert.caserneTransfertPar) {
+      return (
+        <span className="inline-flex flex-col gap-0.5 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 border border-blue-200">
+          <span className="flex items-center gap-1 text-[11px]">
+            <ArrowRightLeft className="h-3 w-3 text-blue-600" />
+            <span>De : {alert.caserneTransfertPar}</span>
+          </span>
+          {alert.caserneTransfertA && (
+            <span className="text-[10px] text-blue-600 font-normal">
+              Vers : {alert.caserneTransfertA}
+            </span>
+          )}
+        </span>
+      );
+    }
+
+    if (!alert.caserne) {
       return (
         <span className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-500">
           Non assignée
@@ -247,13 +301,13 @@ export default function HistoryPage() {
       );
     }
 
-    const isOurCaserne = caserne.toLowerCase() === currentCaserne.toLowerCase();
+    const isOurCaserne = alert.caserne.toLowerCase() === currentCaserne.toLowerCase();
 
     if (isOurCaserne) {
       return (
         <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 border border-blue-200">
           <Building2 className="h-3.5 w-3.5 text-blue-600" />
-          {caserne} (Notre caserne)
+          {alert.caserne} (Notre caserne)
         </span>
       );
     }
@@ -261,7 +315,7 @@ export default function HistoryPage() {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-md bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-700 border border-purple-200">
         <Building2 className="h-3.5 w-3.5 text-purple-600" />
-        {caserne}
+        {alert.caserne}
       </span>
     );
   };
@@ -294,7 +348,7 @@ export default function HistoryPage() {
           </div>
 
           {/* INDICATEURS KPI */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-gray-500">Total affiché</span>
@@ -333,6 +387,16 @@ export default function HistoryPage() {
                 </div>
               </div>
               <p className="mt-3 text-2xl font-bold text-red-600">{stats.nouvelles}</p>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-500">Transférées</span>
+                <div className="rounded-lg bg-blue-50 p-2 text-blue-600">
+                  <ArrowRightLeft className="h-5 w-5" />
+                </div>
+              </div>
+              <p className="mt-3 text-2xl font-bold text-blue-600">{stats.transferees}</p>
             </div>
           </div>
 
@@ -374,6 +438,7 @@ export default function HistoryPage() {
                     <option value="nouvelle">Nouvelles</option>
                     <option value="encours">En cours</option>
                     <option value="terminee">Terminées</option>
+                    <option value="transferee">Transférées</option>
                   </select>
                   <Filter className="pointer-events-none absolute right-2.5 top-2.5 h-4 w-4 text-gray-400" />
                 </div>
@@ -426,7 +491,7 @@ export default function HistoryPage() {
                       <th className="px-6 py-4">ID & Date</th>
                       <th className="px-6 py-4">Type d'urgence</th>
                       <th className="px-6 py-4">Citoyen / Contact</th>
-                      <th className="px-6 py-4">Prise en charge par</th>
+                      <th className="px-6 py-4">Caserne / Prise en charge</th>
                       <th className="px-6 py-4">Statut</th>
                       <th className="px-6 py-4 text-right">Action</th>
                     </tr>
@@ -454,7 +519,7 @@ export default function HistoryPage() {
                           <div className="text-xs text-gray-500">{alert.reporterPhone}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {getCaserneBadge(alert.caserne)}
+                          {getCaserneBadge(alert)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           {getStatusBadge(alert.status)}
@@ -486,7 +551,8 @@ export default function HistoryPage() {
           onClose={() => setSelectedAlert(null)}
           onAccept={() => {}}
           onRefuse={() => {}}
-          onTransfer={() => {}}
+          onTransfer={async () => {}}
+          currentCaserne={currentCaserne}
         />
       </DashboardLayout>
     </ProtectedRoute>

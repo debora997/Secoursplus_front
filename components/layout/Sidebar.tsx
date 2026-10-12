@@ -13,6 +13,7 @@ import {
   Settings,
   Menu,
   Siren,
+  VolumeX,
   type LucideIcon,
 } from "lucide-react";
 
@@ -33,7 +34,6 @@ interface SidebarProps {
   setCollapsed: Dispatch<SetStateAction<boolean>>;
 }
 
-// 1. SUPPRESSION DE "ALERTES URGENTES"
 const MAIN_ITEMS: NavItem[] = [
   { key: "accueil", label: "Tableau de bord", icon: Home, href: "/dashboard" },
   { key: "carte", label: "Carte des interventions", icon: Map, href: "/dashboard/map" },
@@ -55,6 +55,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const [activeKey, setActiveKey] = useState(active);
+  const [isMuted, setIsMuted] = useState(false);
 
   // Synchronise la sélection de la sidebar directement avec l'URL
   useEffect(() => {
@@ -65,17 +66,22 @@ export default function Sidebar({
     }
   }, [pathname]);
 
+  // Déclenchement du son si une alerte arrive et que le son n'est pas coupé
   useEffect(() => {
-    if (hasNewAlert) {
+    if (hasNewAlert && !isMuted) {
       const audio = new Audio("/sounds/alert.mp3");
       audio.play().catch(() => {});
     }
-  }, [hasNewAlert]);
+  }, [hasNewAlert, isMuted]);
 
   function handleClick(key: string) {
     setActiveKey(key);
     onNavigate?.(key);
   }
+
+  const toggleMute = () => {
+    setIsMuted((prev) => !prev);
+  };
 
   return (
     <aside
@@ -137,24 +143,31 @@ export default function Sidebar({
         ))}
       </nav>
 
-      {/* INDICATEUR ALERTE */}
+      {/* CONTROLES SONORES & ALERTES */}
       <div className="flex items-center justify-center border-t border-white/10 p-4">
-        <Link
-          href="/dashboard/history"
+        <button
+          type="button"
+          onClick={toggleMute}
           className={`relative flex h-12 w-12 items-center justify-center rounded-full transition-all duration-300 ${
-            hasNewAlert
-              ? "bg-red-600 shadow-lg shadow-red-600/50 animate-pulse"
-              : "bg-white/10 hover:bg-white/20"
+            isMuted
+              ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
+              : hasNewAlert
+              ? "bg-red-600 text-white shadow-lg shadow-red-600/50 animate-pulse"
+              : "bg-white/10 text-red-500 hover:bg-white/20"
           }`}
-          title="Alertes"
+          title={isMuted ? "Activer le son" : "Couper le son"}
+          aria-label={isMuted ? "Activer le son des alertes" : "Couper le son des alertes"}
         >
-          <Siren
-            className={`h-6 w-6 ${hasNewAlert ? "text-white" : "text-red-500"}`}
-          />
-          {hasNewAlert && (
+          {isMuted ? (
+            <VolumeX className="h-6 w-6" />
+          ) : (
+            <Siren className="h-6 w-6" />
+          )}
+
+          {hasNewAlert && !isMuted && (
             <span className="absolute right-1 top-1 h-3 w-3 animate-ping rounded-full bg-white" />
           )}
-        </Link>
+        </button>
       </div>
 
       <style jsx>{`

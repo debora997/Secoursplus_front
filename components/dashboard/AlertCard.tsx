@@ -1,8 +1,23 @@
 "use client";
 
 import { forwardRef } from "react";
-import { Calendar, Clock, MapPin, ChevronRight, Car, Check } from "lucide-react"; // 👈 Ajout de Check
-import { EmergencyAlert, TYPE_LABEL, STATUS_LABEL, PRIORITY_LABEL } from "@/types/alert";
+import {
+  Calendar,
+  Clock,
+  MapPin,
+  ChevronRight,
+  Car,
+  Check,
+  Users,
+  Building2,
+  ArrowRightLeft,
+} from "lucide-react";
+import {
+  EmergencyAlert,
+  TYPE_LABEL,
+  STATUS_LABEL,
+  PRIORITY_LABEL,
+} from "@/types/alert";
 import {
   TYPE_ICON,
   TYPE_ICON_CLASSES,
@@ -14,16 +29,27 @@ import {
 interface AlertCardProps {
   alert: EmergencyAlert;
   onViewDetails: (id: number) => void;
-  onTerminate?: (id: number) => void; // 👈 Nouvelle prop ajoutée
+  onTerminate?: (id: number) => void;
   highlighted?: boolean;
 }
 
 const AlertCard = forwardRef<HTMLDivElement, AlertCardProps>(function AlertCard(
-  { alert, onViewDetails, onTerminate, highlighted }, // 👈 Destructuration de onTerminate
+  { alert, onViewDetails, onTerminate, highlighted },
   ref
 ) {
   const Icon = TYPE_ICON[alert.type] ?? Car;
-  const isHighPriority = alert.priority === "eleve" && alert.status !== "terminee";
+  const isHighPriority =
+    alert.priority === "eleve" && alert.status !== "terminee";
+
+  // Extraction du nombre de victimes (avec fallback à 0)
+  const victimsCount =
+    alert.victims ??
+    (alert as any).victimsCount ??
+    (alert as any).nombreVictimes ??
+    0;
+
+  const isTransferred =
+    alert.status === "TRANSFERRED" || alert.status === "transferee";
 
   return (
     <div
@@ -55,7 +81,7 @@ const AlertCard = forwardRef<HTMLDivElement, AlertCardProps>(function AlertCard(
           }`}
         >
           <Icon className="h-5 w-5" strokeWidth={2} />
-          
+
           {/* Signal d'alerte animé si priorité élevée */}
           {isHighPriority && (
             <span className="absolute -right-1 -top-1 flex h-2.5 w-2.5">
@@ -67,17 +93,30 @@ const AlertCard = forwardRef<HTMLDivElement, AlertCardProps>(function AlertCard(
 
         {/* Détails principaux */}
         <div className="min-w-0 flex-1">
-          {/* Ligne 1 : Type d'alerte, ID et Statut */}
-          <div className="flex items-center gap-2">
+          {/* Ligne 1 : Type d'alerte, ID, Nombre de victimes & Statut */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <h3 className="truncate text-sm font-bold text-slate-900 group-hover:text-red-600 transition-colors">
               {TYPE_LABEL[alert.type] ?? alert.type}
             </h3>
+
             <span className="text-[11px] font-mono font-medium text-slate-400">
               #{alert.id}
             </span>
+
+            {/* BADGE VICTIMES LIGNE 1 */}
+            {victimsCount > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">
+                <Users className="h-3 w-3 text-amber-600" />
+                <span>
+                  {victimsCount} {victimsCount > 1 ? "victimes" : "victime"}
+                </span>
+              </span>
+            )}
+
             <span
-              className={`ml-auto sm:ml-1 whitespace-nowrap rounded-md px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider ${
-                STATUS_BADGE_CLASSES[alert.status] ?? "bg-slate-100 text-slate-700"
+              className={`ml-auto whitespace-nowrap rounded-md px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider ${
+                STATUS_BADGE_CLASSES[alert.status] ??
+                "bg-slate-100 text-slate-700"
               }`}
             >
               {STATUS_LABEL[alert.status] ?? alert.status}
@@ -91,11 +130,48 @@ const AlertCard = forwardRef<HTMLDivElement, AlertCardProps>(function AlertCard(
             </p>
           )}
 
-          {/* Ligne 3 : Métadonnées (Lieu, Date, Priorité) */}
+          {/* Ligne 3 : Prise en charge par une caserne (Alerte En cours) */}
+          {alert.status === "encours" && alert.caserne && (
+            <div className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-amber-900">
+              <Building2 className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+              <span>
+                Prise en charge :{" "}
+                <strong className="font-bold text-amber-950">
+                  {alert.caserne}
+                </strong>
+              </span>
+            </div>
+          )}
+
+          {/* Ligne 3 bis : Caserne émettrice / réceptrice si alerte transférée */}
+          {isTransferred && alert.caserneTransfertPar && (
+            <div className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-blue-900">
+              <ArrowRightLeft className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+              <span>
+                Transférée par :{" "}
+                <strong className="font-bold text-blue-950">
+                  {alert.caserneTransfertPar}
+                </strong>
+                {alert.caserneTransfertA && (
+                  <>
+                    {" ➔ "}
+                    <strong className="font-bold text-blue-800">
+                      {alert.caserneTransfertA}
+                    </strong>
+                  </>
+                )}
+              </span>
+            </div>
+          )}
+
+          {/* Ligne 4 : Métadonnées (Lieu, Date, Priorité) */}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
             {alert.location && (
               <span className="flex items-center gap-1 truncate max-w-[150px] sm:max-w-[200px]">
-                <MapPin className="h-3 w-3 text-red-500 flex-shrink-0" strokeWidth={2} />
+                <MapPin
+                  className="h-3 w-3 text-red-500 flex-shrink-0"
+                  strokeWidth={2}
+                />
                 <span className="truncate">{alert.location}</span>
               </span>
             )}
@@ -129,11 +205,11 @@ const AlertCard = forwardRef<HTMLDivElement, AlertCardProps>(function AlertCard(
 
       {/* --- BOUTONS D'ACTION --- */}
       <div className="flex-shrink-0 self-center flex items-center gap-2">
-        {/* 🟢 BOUTON TERMINER (S'affiche si l'alerte est "encours" et que onTerminate est fourni) */}
+        {/* 🟢 BOUTON TERMINER */}
         {alert.status === "encours" && onTerminate && (
           <button
             onClick={(e) => {
-              e.stopPropagation(); // Évite de déclencher le onViewDetails de la carte globale
+              e.stopPropagation();
               onTerminate(alert.id);
             }}
             className="flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-bold text-white transition-all hover:bg-green-700 hover:shadow-sm"
@@ -143,7 +219,7 @@ const AlertCard = forwardRef<HTMLDivElement, AlertCardProps>(function AlertCard(
           </button>
         )}
 
-        {/* Bouton Détails original */}
+        {/* Bouton Détails */}
         <button
           onClick={(e) => {
             e.stopPropagation();
